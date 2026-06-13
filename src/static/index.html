@@ -41,13 +41,23 @@
   .gate-icon { color: var(--yellow); font-size: 15px; }
   .gate-title { font-size: 14px; font-weight: 500; color: var(--text-bright); }
   .gate-sub { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
+  .gate-metrics { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .gate-metrics .gm { font-family: var(--font-mono); font-size: 12px; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border-dim);
+    border-radius: 6px; padding: 3px 9px; }
+  .gate-metrics .gm b { color: var(--text-bright); font-weight: 500; }
+  .gate-status { font-size: 13px; margin-bottom: 8px; }
+  .gate-ok   { color: var(--teal); }
+  .gate-warn { color: var(--yellow); }
   .gate-msg { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.6; }
-  .gate-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .gate-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .gate-btn { font-family: var(--font-ui); font-size: 13px; padding: 8px 14px;
     border-radius: 6px; border: 1px solid var(--border); background: transparent;
-    color: var(--text); cursor: pointer; transition: background .15s; }
+    color: var(--text); cursor: pointer; transition: background .15s;
+    text-decoration: none; display: inline-block; }
   .gate-btn:hover { background: var(--card-hi); }
-  .gate-btn.approve { background: var(--teal); border-color: var(--teal); color: #04201B; }
+  .gate-btn.approve { background: var(--teal); border-color: var(--teal); color: #04201B; font-weight: 500; }
+  .gate-btn.refine { border-color: var(--teal); color: var(--teal); }
   .gate-btn.redo { border-color: var(--yellow); color: var(--yellow); }
   .gate-btn.skip { border-color: var(--red); color: var(--red); }
 
@@ -1077,21 +1087,41 @@ function renderGates(gates) {
   }
   if (!wrap) return;
   if (!pending.length) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = pending.map(g => `
+  wrap.innerHTML = pending.map(g => {
+    const d = g.detail || {};
+    const vox = (d.voxel_count != null) ? Number(d.voxel_count).toLocaleString() : '—';
+    const comp = (d.n_components != null) ? d.n_components : null;
+    const sel = d.selection || 'whole brain';
+    const clean = d.ok !== false;
+    const compTxt = comp != null ? `${comp} connected ${comp === 1 ? 'piece' : 'pieces'}` : '';
+    const status = clean
+      ? `<span class="gate-ok">✓ Looks clean — ready to approve</span>`
+      : `<span class="gate-warn">⚠ ${(d.messages && d.messages.length ? d.messages.join('; ') : 'Worth a look before approving')}</span>`;
+    const editorUrl = `/manual-mask?subject=${encodeURIComponent(g.subject_id)}`
+      + (d.version_id ? `&version=${encodeURIComponent(d.version_id)}` : '');
+    return `
     <div class="gate-card">
       <div class="gate-head">
         <span class="gate-icon">⏸</span>
-        <span class="gate-title">Review gate · ${g.stage.toUpperCase()}</span>
+        <span class="gate-title">Review the mask for</span>
         <span class="gate-sub">${g.subject_id}</span>
       </div>
-      <div class="gate-msg">Paused — downstream stages are held until you decide.
-        Open the mask editor to refine the baseline, then approve.</div>
+      <div class="gate-metrics">
+        <span class="gm"><b>${sel}</b></span>
+        <span class="gm">${vox} voxels</span>
+        ${compTxt ? `<span class="gm">${compTxt}</span>` : ''}
+      </div>
+      <div class="gate-status">${status}</div>
+      <div class="gate-msg">Downstream stages are paused. Approve to export and continue,
+        or open the editor to refine the mask first.</div>
       <div class="gate-actions">
         <button class="gate-btn approve" onclick="decideGate('${g.subject_id}','${g.stage}','approve')">✓ Approve &amp; export</button>
-        <button class="gate-btn redo" onclick="decideGate('${g.subject_id}','${g.stage}','redo')">↻ Redo baseline</button>
+        <a class="gate-btn refine" href="${editorUrl}">✎ Refine in editor</a>
+        <button class="gate-btn redo" onclick="decideGate('${g.subject_id}','${g.stage}','redo')">↻ Redo</button>
         <button class="gate-btn skip" onclick="decideGate('${g.subject_id}','${g.stage}','skip')">✕ Skip</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function decideGate(subject, stage, decision) {

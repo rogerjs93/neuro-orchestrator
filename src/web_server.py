@@ -106,6 +106,9 @@ gate_config: Dict[str, Dict[str, str]] = {
 }
 # Append-only audit trail of gate decisions (doubles as provenance).
 gate_audit: List[Dict[str, Any]] = []
+# Cached QC summary per pending mask gate, so the reviewer sees metrics inline
+# without recomputing on every snapshot broadcast. Cleared when the gate resolves.
+mask_gate_details: Dict[str, Dict[str, Any]] = {}
 MASK_CACHE_MAX_ITEMS = 8
 _mask_volume_cache: "OrderedDict[str, tuple[np.ndarray, nib.spatialimages.SpatialImage, Dict[str, Any]]]" = OrderedDict()
 ANATOMY_CACHE_MAX_ITEMS = 4
@@ -1003,12 +1006,17 @@ def _snapshot() -> Dict[str, Any]:
     jobs = [asdict(j) for j in sorted(stl_jobs.values(), key=lambda x: x.created_at, reverse=True)]
     intents = [asdict(i) for i in sorted(stl_intents.values(), key=lambda x: x.created_at, reverse=True)]
 
-    pending_gates = [
-        {"subject_id": sid, "stage": stage}
-        for sid, sub in pipeline_state.subjects.items()
-        for stage in STAGE_ORDER
-        if sub.stage_status.get(stage) == StageStatus.AWAITING_REVIEW
-    ]
+    pending_gates = []
+    for sid, sub in pipeline_state.subjects.items():
+        for stage in STAGE_ORDER:
+            if sub.stage_status.get(stage) != StageStatus.AWAITING_REVIEW:
+                continue
+            entry: Dict[str, Any] = {"subject_id": sid, "stage": stage}
+            if stage == "mask":
+                detail = _mask_gate_detail(sid)
+                if detail:
+                    entry["detail"] = detail
+            pending_gates.append(entry)
 
     return {
         "type": "state_snapshot",
@@ -1331,6 +1339,7 @@ async def decide_gate(subject_id: str, stage: str, payload: Dict[str, Any] = Bod
             version_id = str(versions[0].get("version_id", "")).strip()
         job = _enqueue_stl_from_version(subject_id, version_id)
         pipeline_state.set_completed(subject_id, stage)
+        mask_gate_details.pop(subject_id, None)
         _register_stage_artifacts(subject_id, stage)
         _record_gate_decision(subject_id, stage, "approve", version_id=version_id,
                               note=note, operator=operator, stl_job_id=(job.id if job else None))
@@ -1348,6 +1357,7 @@ async def decide_gate(subject_id: str, stage: str, payload: Dict[str, Any] = Bod
             saved = _build_mask_baseline(subject_id)
         except Exception as exc:
             return JSONResponse({"error": f"redo failed: {exc}"}, status_code=400)
+        mask_gate_details.pop(subject_id, None)  # recompute QC for the new baseline
         _record_gate_decision(subject_id, stage, "redo", version_id=saved["version_id"],
                               note=note, operator=operator)
         _save_checkpoint_now()
@@ -1358,6 +1368,7 @@ async def decide_gate(subject_id: str, stage: str, payload: Dict[str, Any] = Bod
 
     if decision == "skip":
         sub.stage_status[stage] = StageStatus.SKIPPED
+        mask_gate_details.pop(subject_id, None)
         _record_gate_decision(subject_id, stage, "skip", version_id=(version_id or None),
                               note=note, operator=operator)
         _save_checkpoint_now()
@@ -2033,6 +2044,33 @@ def _enqueue_stl_from_version(subject_id: str, version_id: str, preset: str = "s
         return _queue_stl_job(subject_id, {"preset": preset, "params": params}, skip_prereq=True)
     except HTTPException:
         return None
+
+
+def _mask_gate_detail(subject_id: str) -> Dict[str, Any]:
+    """Reviewer-facing QC summary for a pending mask gate (cached per subject)."""
+    cached = mask_gate_details.get(subject_id)
+    if cached:
+        return cached
+    versions = _list_mask_versions(subject_id)
+    if not versions:
+        return {}
+    latest = versions[0]
+    version_id = str(latest.get("version_id", ""))
+    detail: Dict[str, Any] = {
+        "version_id": version_id,
+        "voxel_count": int(latest.get("voxel_count", 0)),
+        "selection": latest.get("selection") or latest.get("mask_mode") or "whole brain",
+        "url": latest.get("url"),
+    }
+    try:
+        res = validate_artifact("mask_version", _mask_version_nifti_path(subject_id, version_id))
+        detail["n_components"] = int(res.qc.get("n_components", 0))
+        detail["ok"] = bool(res.ok)
+        detail["messages"] = list(res.messages)
+    except Exception:
+        pass
+    mask_gate_details[subject_id] = detail
+    return detail
 
 
 def _register_stage_artifacts(subject_id: str, stage: str) -> List[str]:
