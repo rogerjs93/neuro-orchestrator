@@ -198,6 +198,19 @@ class ArtifactManifest:
         p = Path(art.path)
         return p if p.is_absolute() else (self.root / p)
 
+    def is_stale(self, subject: str, role: str) -> bool:
+        """True if any recorded input hash no longer matches the current upstream artifact."""
+        art = self.resolve(subject, role)
+        if art is None:
+            return False
+        for ref in art.inputs:
+            current = self.resolve(subject, str(ref.get("role", "")))
+            if current is None or not current.sha256 or not ref.get("sha256"):
+                continue
+            if current.sha256 != ref["sha256"]:
+                return True
+        return False
+
     def input_refs(self, subject: str, roles: List[str]) -> List[Dict[str, str]]:
         """Build provenance edges (role + hash) for the given upstream roles."""
         refs: List[Dict[str, str]] = []

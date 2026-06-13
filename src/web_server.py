@@ -1370,6 +1370,35 @@ async def decide_gate(subject_id: str, stage: str, payload: Dict[str, Any] = Bod
     return JSONResponse({"error": "decision must be one of: approve, redo, skip"}, status_code=400)
 
 
+@app.post("/api/rerun/{subject_id}/{stage}")
+async def rerun_from_stage(subject_id: str, stage: str, payload: Dict[str, Any] = Body(default={})) -> JSONResponse:
+    """Reprocess a stage and everything downstream of it (reprocess cascade)."""
+    _reload_subjects()
+    sub = pipeline_state.subjects.get(subject_id)
+    if not sub:
+        return JSONResponse({"error": "Subject not found"}, status_code=404)
+    if stage not in STAGE_ORDER:
+        return JSONResponse({"error": f"Unknown stage '{stage}'"}, status_code=400)
+    if sub.overall_status == StageStatus.RUNNING:
+        return JSONResponse({"error": f"{subject_id} is already running"}, status_code=409)
+    if any(st == StageStatus.AWAITING_REVIEW for st in sub.stage_status.values()):
+        return JSONResponse({"error": "Resolve the open review gate before reprocessing"}, status_code=409)
+
+    changed = pipeline_state.mark_for_rerun(subject_id, stage)
+    if not changed:
+        return JSONResponse({"error": f"Nothing to reprocess from '{stage}' (skipped or unknown)"}, status_code=409)
+
+    _save_checkpoint_now()
+    await broadcast({
+        "type": "log", "subject_id": subject_id, "stage": stage,
+        "message": f"[reprocess] re-running from {stage}: {', '.join(changed)}", "level": "stage",
+    })
+    await broadcast(_snapshot())
+    if bool(payload.get("run", True)):
+        asyncio.create_task(_run(subject_id))
+    return JSONResponse({"message": "reprocess queued", "stages": changed})
+
+
 @app.post("/api/reset")
 async def reset_pipeline() -> JSONResponse:
     log_buffer.clear()

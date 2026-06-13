@@ -43,6 +43,31 @@ STAGE_DEPENDS_ON: Dict[str, str] = {
     "mask": "fastsurfer",   # masking/STL builds on the segmentation
 }
 
+# Data-flow graph: which upstream stages each stage consumes. Drives the
+# reprocess cascade — re-running a stage marks everything downstream stale.
+STAGE_INPUTS: Dict[str, List[str]] = {
+    "mriqc":        [],
+    "fastsurfer":   [],
+    "fmriprep":     [],
+    "mrtrix3":      [],
+    "connectivity": ["fmriprep"],
+    "mask":         ["fastsurfer"],
+    "network":      ["connectivity", "mrtrix3"],
+}
+
+
+def downstream_stages(stage: str) -> List[str]:
+    """All stages that (transitively) consume `stage`, returned in STAGE_ORDER."""
+    found: Set[str] = set()
+    frontier = [stage]
+    while frontier:
+        current = frontier.pop()
+        for candidate, upstreams in STAGE_INPUTS.items():
+            if current in upstreams and candidate not in found:
+                found.add(candidate)
+                frontier.append(candidate)
+    return [s for s in STAGE_ORDER if s in found]
+
 
 @dataclass
 class SubjectState:
@@ -201,3 +226,19 @@ class PipelineState:
     def reset_subject(self, subject_id: str) -> None:
         if subject_id in self.subjects:
             self.subjects[subject_id].__post_init__()
+
+    def mark_for_rerun(self, subject_id: str, stage: str) -> List[str]:
+        """Reset `stage` and everything downstream of it to PENDING (reprocess cascade).
+
+        Preserves SKIPPED stages. Returns the stages that were marked.
+        """
+        sub = self.subjects.get(subject_id)
+        if sub is None:
+            return []
+        targets = [stage] + downstream_stages(stage)
+        changed: List[str] = []
+        for s in targets:
+            if s in sub.stage_status and sub.stage_status[s] != StageStatus.SKIPPED:
+                sub.stage_status[s] = StageStatus.PENDING
+                changed.append(s)
+        return changed
