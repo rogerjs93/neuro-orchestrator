@@ -12,6 +12,7 @@ from typing import AsyncIterator, List, Optional, Tuple
 import nibabel as nib
 
 from pipeline.state import STAGE_ORDER, STAGE_REQUIRES, SubjectState, StageStatus
+from pipeline.manifest import ArtifactManifest
 
 
 class PipelineRunner:
@@ -26,6 +27,8 @@ class PipelineRunner:
         self.output_dir = output_dir
         self.fs_license = fs_license
         self.mock = mock
+        # Shared artifact ledger — used to resolve stage inputs by role.
+        self.manifest = ArtifactManifest(output_dir / "derivatives")
         self.fastsurfer_use_gpu = os.getenv("FASTSURFER_USE_GPU", "0").strip().lower() in (
             "1", "true", "yes", "on"
         )
@@ -341,12 +344,22 @@ class PipelineRunner:
 
         # Python-based stages run inside the orchestrator container directly
         if stage == "connectivity":
-            return [
+            cmd = [
                 "python", "-m", "pipeline.tasks.connectivity",
                 "--subject", subject_id,
                 "--fmriprep-dir", str(self.output_dir / "fmriprep"),
                 "--output-dir",  str(self.output_dir / "connectivity"),
             ]
+            # Resolve inputs by role (decoupled from the preprocessing tool used).
+            # Reload so we see artifacts registered by the just-finished fMRIPrep.
+            self.manifest.load()
+            bold = self.manifest.resolve_path(subject_id, "preproc_bold")
+            confounds = self.manifest.resolve_path(subject_id, "confounds")
+            if bold and bold.is_file():
+                cmd += ["--bold", str(bold)]
+            if confounds and confounds.is_file():
+                cmd += ["--confounds", str(confounds)]
+            return cmd
 
         if stage == "network":
             return [

@@ -782,6 +782,12 @@ def _purge_stl_runtime_state(subject_id: Optional[str] = None) -> Dict[str, int]
 
 
 def _find_fastsurfer_segmentation(subject_id: str) -> Optional[Path]:
+    # Prefer the canonical artifact (decoupled from which seg tool ran); fall back
+    # to globbing for older runs registered before the manifest existed.
+    resolved = manifest.resolve_path(subject_id, "seg")
+    if resolved and resolved.is_file():
+        return resolved
+
     fastsurfer_dir = OUTPUT_DIR / "fastsurfer"
     candidates = [
         f"{subject_id}/**/aparc.DKTatlas+aseg.deep.mgz",
