@@ -1,0 +1,27 @@
+{
+  "name": "neuro-orchestrator",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "orchestrator",
+  "workspaceFolder": "/workspace",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylance",
+        "ms-azuretools.vscode-docker",
+        "charliermarsh.ruff",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.analysis.typeCheckingMode": "basic",
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "editor.formatOnSave": true
+      }
+    }
+  },
+
+  "postCreateCommand": "echo '✓ neuro-orchestrator ready. Run: python src/orchestrator.py'",
+  "remoteUser": "root"
+}

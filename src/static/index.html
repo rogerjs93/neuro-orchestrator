@@ -1,0 +1,1974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>neuro-orchestrator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  /* ── Variables ─────────────────────────────────────────────────── */
+  :root {
+    --bg:           #06090f;
+    --surface:      #0d1521;
+    --card:         #111e30;
+    --card-hi:      #182846;
+    --border:       #2c4266;
+    --border-dim:   #1a2e46;
+    --text:         #ccdcee;
+    --text-dim:     #7a9ab8;
+    --text-bright:  #edf4ff;
+    --teal:         #00f5c0;
+    --teal-bg:      #003d2e;
+    --yellow:       #ffd95e;
+    --yellow-bg:    #2e2000;
+    --red:          #ff4f4f;
+    --red-bg:       #38090a;
+    --blue:         #5eb8ff;
+    --blue-bg:      #0b1e3f;
+    --font-ui:      'Space Mono', monospace;
+    --font-log:     'IBM Plex Mono', monospace;
+  }
+
+  /* ── Reset ─────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: var(--font-ui);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Grid texture overlay ──────────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(rgba(0,245,192,.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,245,192,.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* ── Header ────────────────────────────────────────────────────── */
+  header {
+    position: relative; z-index: 10;
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 18px;
+    height: 48px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .logo {
+    font-size: 15px; font-weight: 700; letter-spacing: .06em;
+    color: var(--teal);
+  }
+  .logo span { color: var(--text-dim); font-weight: 400; }
+  .conn-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-dim);
+    transition: background .3s;
+    flex-shrink: 0;
+  }
+  .conn-dot.live { background: var(--teal); box-shadow: 0 0 6px var(--teal); }
+  .conn-dot.dead { background: var(--red); }
+  #conn-label { color: var(--text-dim); font-size: 11px; }
+  .badge-mock {
+    background: var(--yellow-bg); color: var(--yellow);
+    border: 1px solid var(--yellow); border-radius: 2px;
+    padding: 2px 7px; font-size: 10px; letter-spacing: .1em;
+  }
+  header .spacer { flex: 1; }
+  .hdr-btn {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font-ui); font-size: 11px;
+    padding: 5px 13px; border-radius: 3px; cursor: pointer;
+    letter-spacing: .05em; transition: all .15s;
+  }
+  .hdr-btn:hover { border-color: var(--teal); color: var(--teal); }
+  .hdr-btn.primary { border-color: var(--teal); color: var(--teal); }
+  .hdr-btn.primary:hover { background: var(--teal-bg); }
+  .hdr-btn.danger:hover { border-color: var(--red); color: var(--red); }
+  .hdr-btn:disabled {
+    opacity: var(--state-disabled-opacity);
+    cursor: not-allowed;
+  }
+
+  .split-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: stretch;
+    border-radius: 3px;
+    overflow: visible;
+  }
+
+  .split-btn .hdr-btn {
+    border-radius: 0;
+  }
+
+  .split-btn .hdr-btn:first-child {
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+  }
+
+  .split-btn .split-arrow {
+    border-left: 0;
+    width: 28px;
+    padding: 0;
+    font-size: 10px;
+    line-height: 1;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+  }
+
+  .split-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 170px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 8px 18px rgba(0,0,0,.35);
+    z-index: 50;
+    padding: 4px;
+  }
+
+  .split-menu[hidden] { display: none; }
+
+  .split-item {
+    width: 100%;
+    background: transparent;
+    color: var(--text);
+    border: 0;
+    text-align: left;
+    font-family: var(--font-ui);
+    font-size: 10px;
+    padding: 6px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .split-item:hover { background: var(--card-hi); color: var(--teal); }
+  .split-item.active { color: var(--teal); background: var(--teal-bg); }
+
+  /* ── Main layout ───────────────────────────────────────────────── */
+  main {
+    position: relative; z-index: 1;
+    flex: 1; display: flex; overflow: hidden;
+  }
+
+  /* ── Left panel ────────────────────────────────────────────────── */
+  #left {
+    width: 62%; display: flex; flex-direction: column;
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  #left-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  #left-scroll::-webkit-scrollbar { width: 4px; }
+  #left-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Drop zone ─────────────────────────────────────────────────── */
+  #drop-zone {
+    margin: 12px 14px 8px;
+    border: 1.5px dashed var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  #drop-zone.drag-over {
+    border-color: var(--teal);
+    background: var(--teal-bg);
+  }
+  #drop-zone.has-data {
+    padding: 8px 14px;
+    border-style: solid;
+    border-color: var(--border-dim);
+    background: transparent;
+    display: flex; align-items: center; gap: 10px;
+  }
+  #drop-zone .dz-icon { font-size: 22px; }
+  #drop-zone .dz-title {
+    font-size: 12px; color: var(--text); font-weight: 700; letter-spacing: .05em;
+  }
+  #drop-zone .dz-sub {
+    font-size: 10px; color: var(--text-dim); margin-top: 3px;
+  }
+  #drop-zone .dz-loaded {
+    font-size: 11px; color: var(--teal); flex: 1;
+  }
+  #drop-zone .dz-change {
+    font-size: 10px; color: var(--text-dim); text-decoration: underline; cursor: pointer;
+  }
+  #file-input { display: none; }
+
+  /* ── Pipeline table ────────────────────────────────────────────── */
+  #pipeline-wrap {
+    overflow-y: auto; overflow-x: auto;
+    padding: 0 14px 12px;
+    max-height: 44vh;
+  }
+  #pipeline-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
+  #pipeline-wrap::-webkit-scrollbar-track { background: transparent; }
+  #pipeline-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .stl-panel {
+    margin: 0 14px 10px;
+    border: 1px solid var(--border-dim);
+    border-radius: 6px;
+    background: var(--surface);
+    padding: 10px;
+  }
+
+  .stl-title {
+    color: var(--teal);
+    font-size: 10px;
+    letter-spacing: .1em;
+    margin-bottom: 8px;
+  }
+
+  .stl-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+
+  .stl-input, .stl-select {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 7px;
+    border-radius: 3px;
+    font-family: var(--font-ui);
+    font-size: 10px;
+  }
+
+  .stl-select { min-width: 170px; }
+  .stl-input { min-width: 100px; }
+
+  .stl-label {
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+
+  .stl-adv {
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-dim);
+  }
+
+  .stl-adv[hidden] { display: none; }
+
+  .stl-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 10px;
+    padding: 5px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .stl-btn:hover { border-color: var(--teal); color: var(--teal); }
+  .stl-btn.primary { border-color: var(--teal); color: var(--teal); }
+  .stl-btn.danger { border-color: var(--red); color: var(--red); }
+  .stl-btn.danger:hover { background: var(--red-bg); }
+  .stl-btn:disabled {
+    opacity: var(--state-disabled-opacity);
+    cursor: not-allowed;
+  }
+
+  .stl-note {
+    color: var(--yellow);
+    font-size: 10px;
+    line-height: 1.5;
+    margin: 6px 0 8px;
+    padding: 7px 8px;
+    border: 1px solid rgba(255,217,94,.28);
+    background: rgba(255,217,94,.06);
+    border-radius: 4px;
+  }
+
+  #results-list {
+    display: grid;
+    gap: 7px;
+    max-height: 22vh;
+    overflow-y: auto;
+  }
+
+  .result-item {
+    border: 1px solid var(--border-dim);
+    border-radius: 4px;
+    padding: 7px;
+    background: var(--card);
+    transition: border-color .15s, background .15s;
+  }
+  .result-item:hover {
+    border-color: var(--border);
+    background: var(--card-hi);
+  }
+
+  .result-subject {
+    color: var(--text-bright);
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+
+  .result-links a {
+    color: var(--blue);
+    text-decoration: none;
+    font-size: 10px;
+    margin-right: 8px;
+  }
+
+  .result-links a:hover { text-decoration: underline; }
+
+  #stl-jobs {
+    max-height: 16vh;
+    overflow-y: auto;
+    border-top: 1px dashed var(--border-dim);
+    margin-top: 7px;
+    padding-top: 7px;
+  }
+
+  .stl-job {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0;
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+
+  .stl-job .status-running { color: var(--yellow); }
+  .stl-job .status-completed { color: var(--teal); }
+  .stl-job .status-failed { color: var(--red); }
+  .stl-job .status-cancelled { color: var(--text-dim); }
+
+  table { width: 100%; border-collapse: collapse; min-width: 680px; }
+
+  /* Column header row */
+  thead th {
+    padding: 6px 8px;
+    text-align: center;
+    font-size: 9px;
+    letter-spacing: .12em;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border-dim);
+    white-space: nowrap;
+    font-weight: 400;
+  }
+  thead th.th-subject { text-align: left; width: 160px; }
+  thead th.th-stage { width: 90px; }
+  thead th.th-check { width: 26px; text-align: center; }
+
+  /* Subject rows */
+  tbody tr {
+    border-bottom: 1px solid var(--border-dim);
+    cursor: pointer;
+    transition: background .12s;
+  }
+  tbody tr:nth-child(even) { background: rgba(255,255,255,.018); }
+  tbody tr:hover { background: var(--card-hi); }
+  tbody tr.selected { background: var(--card-hi); border-left: 2px solid var(--teal); }
+
+  td { padding: 7px 8px; vertical-align: middle; }
+  td.td-subject {
+    text-align: left;
+    font-size: 12px;
+    color: var(--text-bright);
+    font-weight: 700;
+  }
+  td.td-check {
+    width: 26px;
+    text-align: center;
+  }
+
+  .subject-check,
+  #check-all {
+    accent-color: var(--teal);
+    cursor: pointer;
+  }
+  .sub-meta {
+    display: flex; gap: 5px; margin-top: 3px;
+  }
+  .mod-badge {
+    font-size: 9px; padding: 1px 5px; border-radius: 2px;
+    letter-spacing: .08em; font-weight: 400;
+  }
+  .mod-anat { background: var(--blue-bg);  color: var(--blue);  }
+  .mod-func { background: var(--yellow-bg); color: var(--yellow); }
+  .mod-dwi  { background: var(--teal-bg);  color: var(--teal);  }
+  .progress-text {
+    font-size: 9px; color: var(--text-dim); margin-left: 4px;
+  }
+
+  /* Stage cells */
+  td.td-stage { text-align: center; padding: 7px 5px; }
+  .stage-box {
+    display: inline-flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    width: 70px; height: 36px; border-radius: 4px;
+    border: 1px solid var(--border-dim);
+    background: transparent;
+    font-size: 10px; color: var(--text-dim);
+    transition: all .2s; position: relative;
+    gap: 1px;
+  }
+  .stage-box .s-icon { font-size: 13px; line-height: 1; }
+  .stage-box .s-label { font-size: 8px; letter-spacing: .06em; opacity: .7; }
+
+  /* Status variants */
+  .stage-box.completed {
+    border-color: var(--state-success-border);
+    background: var(--state-success-bg);
+    color: var(--teal);
+  }
+  .stage-box.failed {
+    border-color: var(--state-error-border);
+    background: var(--state-error-bg);
+    color: var(--red);
+  }
+  .stage-box.skipped {
+    border-color: transparent;
+    color: var(--border);
+  }
+  .stage-box.running {
+    border-color: var(--state-warning-border);
+    background: var(--state-warning-bg);
+    color: var(--yellow);
+    animation: pulse-stage 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse-stage {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,217,94,.55); }
+    50%       { box-shadow: 0 0 0 6px rgba(255,217,94,.0); }
+  }
+
+  /* Empty state */
+  #empty-state {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 10px; color: var(--text-dim);
+    padding: 40px;
+  }
+  #empty-state .em-icon { font-size: 36px; opacity: .4; }
+  #empty-state .em-text { font-size: 12px; text-align: center; line-height: 1.8; }
+
+  /* ── Right panel ───────────────────────────────────────────────── */
+  #right {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  }
+  #log-header {
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid var(--border-dim);
+    display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0;
+  }
+  #log-header .lh-title {
+    font-size: 9px; letter-spacing: .12em; color: var(--text-dim); font-weight: 400;
+  }
+  #log-filter-label {
+    font-size: 10px; color: var(--teal); flex: 1;
+  }
+  .log-btn {
+    background: transparent; border: none; cursor: pointer;
+    color: var(--text-dim); font-size: 10px; font-family: var(--font-ui);
+    padding: 2px 6px; transition: color .15s;
+  }
+  .log-btn:hover { color: var(--text); }
+
+  #log-output {
+    flex: 1; overflow-y: auto; padding: 8px 14px;
+    font-family: var(--font-log); font-size: 11px; line-height: 1.7;
+  }
+  #log-output::-webkit-scrollbar { width: 3px; }
+  #log-output::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .log-line {
+    display: flex; gap: 10px; align-items: baseline;
+    animation: fadein .15s ease;
+    padding: 1px 0;
+  }
+  @keyframes fadein { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
+  .log-line.hidden { display: none; }
+  .ll-time { color: var(--text-dim); flex-shrink: 0; font-size: 10px; }
+  .ll-sub  { color: var(--blue); flex-shrink: 0; min-width: 70px; font-size: 10px; }
+  .ll-msg  { color: var(--text); word-break: break-word; }
+
+  .log-line.level-stage .ll-msg  { color: var(--teal); font-weight: 500; letter-spacing: .04em; }
+  .log-line.level-error .ll-msg  { color: var(--red); }
+  .log-line.level-info  .ll-msg  { color: var(--text); }
+
+  .hdr-btn:focus-visible,
+  .split-item:focus-visible,
+  .stl-btn:focus-visible,
+  .log-btn:focus-visible,
+  select:focus-visible,
+  input:focus-visible {
+    outline: var(--state-focus-ring);
+    box-shadow: var(--state-focus);
+  }
+
+  /* ── Responsive ────────────────────────────────────────────────── */
+  @media (max-width: 900px) {
+    main { flex-direction: column; }
+    #left  { width: 100%; border-right: none; border-bottom: 1px solid var(--border); height: 55%; }
+    #right { height: 45%; }
+  }
+</style>
+<style>
+  :root {
+    --ui-shadow-lg: 0 16px 44px rgba(0, 0, 0, 0.36);
+    --ui-shadow-sm: 0 8px 20px rgba(0, 0, 0, 0.28);
+    --ctl-font-size: 10px;
+    --ctl-pad-y: 6px;
+    --ctl-pad-x: 10px;
+    --ctl-radius: 4px;
+    --ctl-min-h: 30px;
+    --chip-font-size: 9px;
+    --chip-pad-y: 2px;
+    --chip-pad-x: 6px;
+    --chip-radius: 4px;
+    --tbl-head-pad-y: 8px;
+    --tbl-head-pad-x: 8px;
+    --tbl-cell-pad-y: 8px;
+    --tbl-cell-pad-x: 8px;
+    --state-focus: 0 0 0 3px rgba(94, 184, 255, 0.30);
+    --state-focus-ring: 2px solid var(--blue);
+    --state-disabled-opacity: .42;
+    --state-success-bg: rgba(0, 245, 192, .12);
+    --state-success-border: rgba(0, 245, 192, .90);
+    --state-warning-bg: rgba(255, 217, 94, .16);
+    --state-warning-border: rgba(255, 217, 94, .92);
+    --state-error-bg: rgba(255, 79, 79, .15);
+    --state-error-border: rgba(255, 79, 79, .90);
+  }
+
+  body {
+    background:
+      radial-gradient(1100px 700px at 8% -12%, rgba(94, 184, 255, 0.28), transparent 55%),
+      radial-gradient(950px 680px at 96% 4%, rgba(0, 245, 192, 0.22), transparent 58%),
+      var(--bg);
+  }
+
+  header,
+  #drop-zone,
+  .stl-panel,
+  #pipeline-wrap,
+  #right {
+    box-shadow: var(--ui-shadow-sm);
+    animation: ui-rise 320ms ease-out;
+  }
+
+  header {
+    backdrop-filter: blur(8px);
+  }
+
+  #drop-zone,
+  .stl-panel {
+    border-radius: 10px;
+  }
+
+  .hdr-btn,
+  .split-item,
+  button,
+  select,
+  input {
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease, color 180ms ease;
+  }
+
+  .hdr-btn,
+  .stl-btn,
+  .stl-input,
+  .stl-select {
+    min-height: var(--ctl-min-h);
+    font-size: var(--ctl-font-size);
+    border-radius: var(--ctl-radius);
+    padding: var(--ctl-pad-y) var(--ctl-pad-x);
+    line-height: 1.2;
+  }
+
+  .split-item {
+    min-height: calc(var(--ctl-min-h) - 2px);
+    font-size: var(--ctl-font-size);
+    border-radius: var(--ctl-radius);
+    padding: calc(var(--ctl-pad-y) - 1px) var(--ctl-pad-x);
+    line-height: 1.2;
+  }
+
+  .split-menu {
+    padding: 6px;
+  }
+
+  thead th {
+    padding: var(--tbl-head-pad-y) var(--tbl-head-pad-x);
+  }
+
+  td {
+    padding: var(--tbl-cell-pad-y) var(--tbl-cell-pad-x);
+  }
+
+  td.td-stage {
+    padding: var(--tbl-cell-pad-y) 6px;
+  }
+
+  .mod-badge {
+    font-size: var(--chip-font-size);
+    padding: var(--chip-pad-y) var(--chip-pad-x);
+    border-radius: var(--chip-radius);
+  }
+
+  .stage-box {
+    width: 74px;
+    height: 38px;
+    border-radius: var(--chip-radius);
+    border-width: 1px;
+  }
+
+  .stage-box .s-label {
+    letter-spacing: .07em;
+  }
+
+  .hdr-btn:focus-visible,
+  .split-item:focus-visible,
+  button:focus-visible,
+  select:focus-visible,
+  input:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 1px;
+    box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.22);
+  }
+
+  @keyframes ui-rise {
+    from {
+      opacity: 0.76;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation: none !important;
+      transition: none !important;
+      scroll-behavior: auto !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">⬡ NEURO<span>-ORCHESTRATOR</span></div>
+  <div class="conn-dot" id="conn-dot"></div>
+  <span id="conn-label">connecting…</span>
+  <div id="mock-badge" class="badge-mock" style="display:none">MOCK</div>
+  <div class="spacer"></div>
+  <button class="hdr-btn" id="btn-reset"  onclick="apiReset()">RESET</button>
+
+  <div class="split-btn" id="run-split">
+    <button class="hdr-btn primary" id="btn-run-main" onclick="apiRunAction()">RUN ALL</button>
+    <button class="hdr-btn primary split-arrow" onclick="toggleMenu('run-menu', event)">▼</button>
+    <div class="split-menu" id="run-menu" hidden>
+      <button class="split-item active" id="run-mode-all" onclick="setRunMode('all')">Run all subjects</button>
+      <button class="split-item" id="run-mode-focused" onclick="setRunMode('focused')">Run focused subject</button>
+      <button class="split-item" id="run-mode-checked" onclick="setRunMode('checked')">Run checked subjects</button>
+      <button class="split-item" id="run-mode-after" onclick="toggleRunAfter()">Run + STL after</button>
+    </div>
+  </div>
+
+  <div class="split-btn" id="stl-split">
+    <button class="hdr-btn" id="btn-stl-main" onclick="apiStlAction()">STL ALL</button>
+    <button class="hdr-btn split-arrow" onclick="toggleMenu('stl-menu', event)">▼</button>
+    <div class="split-menu" id="stl-menu" hidden>
+      <button class="split-item active" id="stl-mode-all" onclick="setStlMode('all')">STL all subjects</button>
+      <button class="split-item" id="stl-mode-focused" onclick="setStlMode('focused')">STL focused subject</button>
+      <button class="split-item" id="stl-mode-checked" onclick="setStlMode('checked')">STL checked subjects</button>
+    </div>
+  </div>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Left: drop zone + pipeline table -->
+  <div id="left">
+
+    <div id="left-scroll">
+
+    <!-- Drag & drop upload zone -->
+    <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <div class="dz-icon">⬇</div>
+      <div class="dz-title">DROP BIDS DATASET (.zip)</div>
+      <div class="dz-sub">or click to browse · ZIP of your sub-* folders</div>
+    </div>
+    <input type="file" id="file-input" accept=".zip">
+
+    <div class="stl-panel">
+      <div class="stl-title">STL GENERATION</div>
+      <div class="stl-row">
+        <span class="stl-label">Preset</span>
+        <select id="stl-preset" class="stl-select">
+          <option value="standard">Standard whole brain</option>
+          <option value="high_quality">High quality whole brain</option>
+          <option value="fast_preview">Fast preview</option>
+          <option value="external_cortex">External cortex only</option>
+          <option value="by_region">By region</option>
+          <option value="by_lobe">By lobe</option>
+          <option value="by_network">By network</option>
+          <option value="by_tissue">By tissue class</option>
+          <option value="noise_suppressed">Lesion/noise-suppressed</option>
+        </select>
+        <button class="stl-btn" onclick="resetStlAdvancedOverrides()">USE PRESET DEFAULTS</button>
+        <button class="stl-btn" onclick="toggleAdvanced()">ADVANCED</button>
+      </div>
+
+      <div id="stl-mask-panel" class="stl-adv">
+        <div class="stl-row">
+          <span class="stl-label">Auto mask mode</span>
+          <select id="stl-mask-mode" class="stl-select">
+            <option value="by_region">By region</option>
+            <option value="by_lobe">By lobe</option>
+            <option value="by_network">By network</option>
+            <option value="by_tissue">By tissue class</option>
+          </select>
+          <span class="stl-label">Atlas</span>
+          <select id="stl-mask-atlas" class="stl-select">
+            <option value="fastsurfer_native">FastSurfer native</option>
+          </select>
+          <button class="stl-btn" onclick="refreshMaskCatalog()">REFRESH</button>
+          <button class="stl-btn" onclick="openManualMaskEditor()">MANUAL EDITOR</button>
+        </div>
+        <div class="stl-row">
+          <span class="stl-label">Filter</span>
+          <input id="stl-mask-search" class="stl-input" type="text" placeholder="Search regions/groups" style="min-width:220px">
+          <button class="stl-btn" onclick="clearMaskSelection()">CLEAR SELECTION</button>
+          <span id="stl-mask-summary" class="stl-label">No regions selected</span>
+        </div>
+        <div class="stl-row" style="align-items:flex-start;">
+          <select id="stl-mask-items" class="stl-select" size="8" multiple style="min-width:360px;"></select>
+        </div>
+      </div>
+
+      <div id="stl-advanced" class="stl-adv" hidden>
+        <div class="stl-row">
+          <span class="stl-label">Smoothing iters</span>
+          <input id="stl-smooth-iters" class="stl-input" type="number" min="0" value="8">
+          <span class="stl-label">Smoothing λ</span>
+          <input id="stl-smooth-lambda" class="stl-input" type="number" step="0.01" min="0" max="1" value="0.45">
+          <span class="stl-label">Decimation ratio</span>
+          <input id="stl-decimation" class="stl-input" type="number" step="0.01" min="0.05" max="1" value="0.65">
+        </div>
+        <div class="stl-row">
+          <span class="stl-label">Min voxels</span>
+          <input id="stl-min-vox" class="stl-input" type="number" min="1" value="1000">
+          <span class="stl-label">Open iters</span>
+          <input id="stl-open-iters" class="stl-input" type="number" min="0" value="0">
+          <span class="stl-label">Close iters</span>
+          <input id="stl-close-iters" class="stl-input" type="number" min="0" value="1">
+        </div>
+        <div class="stl-row">
+          <span class="stl-label">Include labels CSV</span>
+          <input id="stl-include" class="stl-input" type="text" placeholder="1002,1003" style="min-width:190px">
+          <span class="stl-label">Exclude labels CSV</span>
+          <input id="stl-exclude" class="stl-input" type="text" placeholder="24,77" style="min-width:160px">
+        </div>
+        <div class="stl-row">
+          <label class="stl-label"><input id="stl-cortex-only" type="checkbox"> External cortex only</label>
+          <label class="stl-label"><input id="stl-normalize" type="checkbox"> Normalize signal</label>
+          <span class="stl-label">Signal threshold</span>
+          <input id="stl-threshold" class="stl-input" type="number" step="0.01" min="0" max="1" value="0.2">
+        </div>
+      </div>
+
+      <div id="stl-jobs"></div>
+    </div>
+
+    <!-- Pipeline visualization -->
+    <div id="pipeline-wrap">
+      <div id="empty-state">
+        <div class="em-icon">🧠</div>
+        <div class="em-text">
+          Drop a BIDS dataset ZIP above to get started.<br>
+          Or place sub-* folders in <code>./data/</code> and refresh.
+        </div>
+      </div>
+    </div>
+
+    <div class="stl-panel">
+      <div class="stl-title">RESULTS</div>
+      <div class="stl-note">
+        Cleanup permanently deletes generated STL files and their sidecar metadata from disk.
+        Choose the scope each time before removing previous results.
+      </div>
+      <div class="stl-row">
+        <span class="stl-label">Cleanup scope</span>
+        <select id="stl-cleanup-scope" class="stl-select">
+          <option value="subject">Current subject</option>
+          <option value="all">All subjects</option>
+        </select>
+        <button class="stl-btn danger" onclick="confirmCleanupStl()">CLEAR PREVIOUS STL RESULTS</button>
+      </div>
+      <div id="results-list"></div>
+    </div>
+
+    </div>
+
+  </div>
+
+  <!-- Right: live log -->
+  <div id="right">
+    <div id="log-header">
+      <span class="lh-title">LIVE LOG</span>
+      <span id="log-filter-label">all subjects</span>
+      <button class="log-btn" onclick="clearFilter()">SHOW ALL</button>
+      <button class="log-btn" onclick="clearLogs()">CLEAR</button>
+      <button class="log-btn" id="autoscroll-btn" onclick="toggleAutoscroll()">↓ AUTO</button>
+    </div>
+    <div id="log-output"></div>
+  </div>
+
+</main>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let subjects       = {};       // {sub-001: {...}, ...}
+let selectedSubject = null;    // for RUN SELECTED
+let logFilter      = null;     // null = all
+let autoscroll     = true;
+let ws             = null;
+let stlJobs        = [];
+let checkedSubjects = new Set();
+let runMode = 'all';
+let runAfter = false;
+let stlMode = 'all';
+let stlAdvancedTouched = false;
+let stlCatalogCache = {};
+let stlCatalogLoading = false;
+let stlMaskSelections = {
+  by_region: new Set(),
+  by_lobe: new Set(),
+  by_network: new Set(),
+  by_tissue: new Set(),
+};
+const STAGES = ['mriqc','fastsurfer','fmriprep','mrtrix3','connectivity','network'];
+const AUTO_MASK_PRESETS = new Set(['by_region', 'by_lobe', 'by_network', 'by_tissue']);
+const STAGE_LABELS = {
+  mriqc: 'MRIQC', fastsurfer: 'FSURF', fmriprep: 'FMRIPREP',
+  mrtrix3: 'MRTRIX', connectivity: 'CONN', network: 'NET'
+};
+const STATUS_ICON = {
+  pending: '○', running: '⟳', completed: '✓', failed: '✗', skipped: '—'
+};
+const STL_PRESET_DEFAULTS = {
+  standard: {
+    smoothing_iterations: 8,
+    smoothing_lambda: 0.45,
+    min_component_voxels: 1000,
+    open_iterations: 0,
+    close_iterations: 1,
+    decimation_ratio: 0.65,
+    external_cortex_only: false,
+    include_labels: [],
+    exclude_labels: [],
+    normalize_signal: false,
+    intensity_threshold: null,
+  },
+  high_quality: {
+    smoothing_iterations: 14,
+    smoothing_lambda: 0.35,
+    min_component_voxels: 500,
+    open_iterations: 0,
+    close_iterations: 1,
+    decimation_ratio: 0.9,
+    external_cortex_only: false,
+    include_labels: [],
+    exclude_labels: [],
+    normalize_signal: false,
+    intensity_threshold: null,
+  },
+  fast_preview: {
+    smoothing_iterations: 4,
+    smoothing_lambda: 0.55,
+    min_component_voxels: 2500,
+    open_iterations: 1,
+    close_iterations: 1,
+    decimation_ratio: 0.2,
+    external_cortex_only: false,
+    include_labels: [],
+    exclude_labels: [],
+    normalize_signal: false,
+    intensity_threshold: null,
+  },
+  external_cortex: {
+    smoothing_iterations: 10,
+    smoothing_lambda: 0.4,
+    min_component_voxels: 1200,
+    open_iterations: 0,
+    close_iterations: 1,
+    decimation_ratio: 0.55,
+    external_cortex_only: true,
+    include_labels: [],
+    exclude_labels: [],
+    normalize_signal: false,
+    intensity_threshold: null,
+  },
+  by_region: {
+    smoothing_iterations: 8,
+    smoothing_lambda: 0.4,
+    min_component_voxels: 400,
+    open_iterations: 0,
+    close_iterations: 1,
+    decimation_ratio: 0.6,
+    external_cortex_only: false,
+    include_labels: [],
+    exclude_labels: [],
+    normalize_signal: false,
+    intensity_threshold: null,
+  },
+  by_lobe: {
+    smoothing_iterations: 8,
+    smoothing_lambda: 0.4,
+    min_component_voxels: 500,
+    open_iterations: 0,
+    close_iterations: 1,
+    decimation_ratio: 0.65,
+    external_cortex_only: false,
+    include_labels: [],
+    exclude_labels: [],
+    normalize_signal: false,
+    intensity_threshold: null,
+  },
+  by_network: {
+    smoothing_iterations: 8,
+    smoothing_lambda: 0.4,
+    min_component_voxels: 450,
+    open_iterations: 0,
+    close_iterations: 1,
+    decimation_ratio: 0.65,
+    external_cortex_only: false,
+    include_labels: [],
+    exclude_labels: [],
+    normalize_signal: false,
+    intensity_threshold: null,
+  },
+  by_tissue: {
+    smoothing_iterations: 8,
+    smoothing_lambda: 0.4,
+    min_component_voxels: 600,
+    open_iterations: 0,
+    close_iterations: 1,
+    decimation_ratio: 0.65,
+    external_cortex_only: false,
+    include_labels: [],
+    exclude_labels: [],
+    normalize_signal: false,
+    intensity_threshold: null,
+  },
+  noise_suppressed: {
+    smoothing_iterations: 10,
+    smoothing_lambda: 0.35,
+    min_component_voxels: 5000,
+    open_iterations: 2,
+    close_iterations: 2,
+    decimation_ratio: 0.7,
+    external_cortex_only: false,
+    include_labels: [],
+    exclude_labels: [],
+    normalize_signal: false,
+    intensity_threshold: null,
+  },
+};
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    setConn(true);
+    log(`[system] connected to neuro-orchestrator`, 'system', null);
+  };
+
+  ws.onclose = () => {
+    setConn(false);
+    setTimeout(connect, 3000);
+  };
+
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'state_snapshot') handleSnapshot(msg);
+    else if (msg.type === 'log')       handleLogMsg(msg);
+  };
+}
+
+function setConn(alive) {
+  const dot   = document.getElementById('conn-dot');
+  const label = document.getElementById('conn-label');
+  dot.className = 'conn-dot ' + (alive ? 'live' : 'dead');
+  label.textContent = alive ? 'live' : 'reconnecting…';
+}
+
+// ── Snapshot rendering ────────────────────────────────────────────────────────
+function handleSnapshot(snap) {
+  subjects = snap.subjects || {};
+  stlJobs  = (snap.stl && snap.stl.jobs) ? snap.stl.jobs : [];
+  const live = new Set(Object.keys(subjects));
+  checkedSubjects = new Set([...checkedSubjects].filter(x => live.has(x)));
+  document.getElementById('mock-badge').style.display = snap.mock ? '' : 'none';
+  renderPipeline();
+  renderResults();
+  renderStlJobs();
+  renderMaskSelectionList();
+  ensureMaskCatalog(false);
+  updateActionButtons();
+}
+
+function renderPipeline() {
+  const wrap = document.getElementById('pipeline-wrap');
+  const ids  = Object.keys(subjects).sort();
+
+  if (ids.length === 0) {
+    wrap.innerHTML = `
+      <div id="empty-state">
+        <div class="em-icon">🧠</div>
+        <div class="em-text">Drop a BIDS dataset ZIP above to get started.<br>
+          Or place sub-* folders in <code>./data/</code> and refresh.</div>
+      </div>`;
+
+    // Expand drop zone
+    const dz = document.getElementById('drop-zone');
+    dz.classList.remove('has-data');
+    dz.innerHTML = `<div class="dz-icon">⬇</div>
+      <div class="dz-title">DROP BIDS DATASET (.zip)</div>
+      <div class="dz-sub">or click to browse · ZIP of your sub-* folders</div>`;
+    return;
+  }
+
+  // Update drop zone to compact mode
+  const dz = document.getElementById('drop-zone');
+  if (!dz.classList.contains('has-data')) {
+    dz.classList.add('has-data');
+    dz.innerHTML = `
+      <div class="dz-icon">📂</div>
+      <span class="dz-loaded">${ids.length} subject${ids.length>1?'s':''} loaded</span>
+      <span class="dz-change" onclick="event.stopPropagation();document.getElementById('file-input').click()">upload new</span>`;
+  } else {
+    // Just update count
+    const lbl = dz.querySelector('.dz-loaded');
+    if (lbl) lbl.textContent = `${ids.length} subject${ids.length>1?'s':''} loaded`;
+  }
+
+  // Build table
+  let html = `<table>
+    <thead><tr>
+      <th class="th-check"><input id="check-all" type="checkbox" onclick="event.stopPropagation()" onchange="toggleCheckAll(this.checked)"></th>
+      <th class="th-subject">SUBJECT</th>
+      ${STAGES.map(s => `<th class="th-stage">${STAGE_LABELS[s]}</th>`).join('')}
+    </tr></thead>
+    <tbody>`;
+
+  for (const id of ids) {
+    const sub   = subjects[id];
+    const sel   = selectedSubject === id ? 'selected' : '';
+    const done  = sub.progress.done;
+    const total = sub.progress.total;
+    const isChecked = checkedSubjects.has(id) ? 'checked' : '';
+    const mods  = (sub.modalities||[]).map(m =>
+      `<span class="mod-badge mod-${m}">${m.toUpperCase()}</span>`).join('');
+
+    html += `<tr class="${sel}" onclick="selectSubject('${id}')">
+      <td class="td-check"><input class="subject-check" type="checkbox" ${isChecked} onclick="event.stopPropagation()" onchange="toggleSubjectChecked('${id}', this.checked)"></td>
+      <td class="td-subject">
+        ${id}
+        <div class="sub-meta">${mods}
+          <span class="progress-text">${done}/${total}</span>
+        </div>
+      </td>`;
+
+    for (const stage of STAGES) {
+      const status = (sub.stages||{})[stage] || 'pending';
+      html += `<td class="td-stage">
+        <div class="stage-box ${status}">
+          <span class="s-icon">${STATUS_ICON[status]||'○'}</span>
+          <span class="s-label">${status === 'running' ? '…' : status.toUpperCase().slice(0,4)}</span>
+        </div>
+      </td>`;
+    }
+    html += `</tr>`;
+  }
+
+  html += `</tbody></table>`;
+  wrap.innerHTML = html;
+
+  const allIds = ids;
+  const checkedCount = allIds.filter(id => checkedSubjects.has(id)).length;
+  const checkAll = document.getElementById('check-all');
+  if (checkAll) {
+    checkAll.checked = allIds.length > 0 && checkedCount === allIds.length;
+    checkAll.indeterminate = checkedCount > 0 && checkedCount < allIds.length;
+  }
+}
+
+function selectSubject(id) {
+  selectedSubject = id;
+  logFilter       = id;
+  document.getElementById('log-filter-label').textContent = id;
+  renderPipeline();
+  applyLogFilter();
+  ensureMaskCatalog(false);
+  renderMaskSelectionList();
+  updateActionButtons();
+}
+
+function clearFilter() {
+  logFilter = null;
+  selectedSubject = null;
+  document.getElementById('log-filter-label').textContent = 'all subjects';
+  applyLogFilter();
+  renderPipeline();
+  updateActionButtons();
+}
+
+function toggleSubjectChecked(id, checked) {
+  if (checked) checkedSubjects.add(id);
+  else checkedSubjects.delete(id);
+  renderPipeline();
+  updateActionButtons();
+}
+
+function toggleCheckAll(checked) {
+  const ids = Object.keys(subjects);
+  if (checked) {
+    ids.forEach(id => checkedSubjects.add(id));
+  } else {
+    checkedSubjects.clear();
+  }
+  renderPipeline();
+  updateActionButtons();
+}
+
+function closeMenus() {
+  document.getElementById('run-menu').hidden = true;
+  document.getElementById('stl-menu').hidden = true;
+}
+
+function toggleMenu(menuId, event) {
+  event.stopPropagation();
+  const el = document.getElementById(menuId);
+  const willOpen = el.hidden;
+  closeMenus();
+  el.hidden = !willOpen;
+}
+
+function setRunMode(mode) {
+  runMode = mode;
+  document.getElementById('run-mode-all').classList.toggle('active', mode === 'all');
+  document.getElementById('run-mode-focused').classList.toggle('active', mode === 'focused');
+  document.getElementById('run-mode-checked').classList.toggle('active', mode === 'checked');
+  closeMenus();
+  updateActionButtons();
+}
+
+function toggleRunAfter() {
+  runAfter = !runAfter;
+  document.getElementById('run-mode-after').classList.toggle('active', runAfter);
+  closeMenus();
+  updateActionButtons();
+}
+
+function setStlMode(mode) {
+  stlMode = mode;
+  document.getElementById('stl-mode-all').classList.toggle('active', mode === 'all');
+  document.getElementById('stl-mode-focused').classList.toggle('active', mode === 'focused');
+  document.getElementById('stl-mode-checked').classList.toggle('active', mode === 'checked');
+  closeMenus();
+  updateActionButtons();
+}
+
+function applyPresetDefaultsToAdvanced(preset) {
+  const cfg = STL_PRESET_DEFAULTS[preset] || STL_PRESET_DEFAULTS.standard;
+  document.getElementById('stl-smooth-iters').value = cfg.smoothing_iterations;
+  document.getElementById('stl-smooth-lambda').value = cfg.smoothing_lambda;
+  document.getElementById('stl-decimation').value = cfg.decimation_ratio;
+  document.getElementById('stl-min-vox').value = cfg.min_component_voxels;
+  document.getElementById('stl-open-iters').value = cfg.open_iterations;
+  document.getElementById('stl-close-iters').value = cfg.close_iterations;
+  document.getElementById('stl-include').value = '';
+  document.getElementById('stl-exclude').value = '';
+  document.getElementById('stl-cortex-only').checked = !!cfg.external_cortex_only;
+  document.getElementById('stl-normalize').checked = !!cfg.normalize_signal;
+  document.getElementById('stl-threshold').value = cfg.intensity_threshold == null ? 0.2 : cfg.intensity_threshold;
+}
+
+function resetStlAdvancedOverrides() {
+  const preset = document.getElementById('stl-preset').value;
+  applyPresetDefaultsToAdvanced(preset);
+  stlAdvancedTouched = false;
+  log(`[stl] Using preset defaults for '${preset}'`, 'stage');
+}
+
+function getMaskCatalogSubjectId() {
+  if (selectedSubject) return selectedSubject;
+  const ids = Object.keys(subjects).sort();
+  return ids.length ? ids[0] : null;
+}
+
+function getCurrentMaskCatalog() {
+  const sid = getMaskCatalogSubjectId();
+  if (!sid) return null;
+  return stlCatalogCache[sid] || null;
+}
+
+async function ensureMaskCatalog(force = false) {
+  const sid = getMaskCatalogSubjectId();
+  if (!sid) {
+    renderMaskSelectionList();
+    return;
+  }
+  if (!force && stlCatalogCache[sid]) {
+    renderMaskSelectionList();
+    return;
+  }
+  if (stlCatalogLoading) return;
+
+  stlCatalogLoading = true;
+  try {
+    const res = await fetch(`/api/stl/catalog/${encodeURIComponent(sid)}`);
+    const data = await parseJsonSafe(res);
+    if (!res.ok) {
+      log(`[stl] ${sid}: ${data.error || data.detail || `catalog load failed (${res.status})`}`, 'error', sid);
+      return;
+    }
+    stlCatalogCache[sid] = data;
+    renderMaskSelectionList();
+  } catch (err) {
+    log(`[stl] ${sid}: failed to load atlas catalog (${err})`, 'error', sid);
+  } finally {
+    stlCatalogLoading = false;
+  }
+}
+
+function refreshMaskCatalog() {
+  ensureMaskCatalog(true);
+}
+
+function openManualMaskEditor() {
+  const sid = getMaskCatalogSubjectId();
+  openManualMaskEditorForSubject(sid);
+}
+
+function openManualMaskEditorForSubject(sid) {
+  if (!sid) {
+    log('[mask] No subject is available for manual editor', 'error');
+    return;
+  }
+  const preset = document.getElementById('stl-preset').value;
+  const mode = document.getElementById('stl-mask-mode').value;
+  const selected = [...(stlMaskSelections[mode] || new Set())];
+  const labelValues = selected
+    .filter(v => String(v).startsWith('label:'))
+    .map(v => String(v).slice(6))
+    .filter(Boolean);
+  const groupValues = selected
+    .filter(v => String(v).startsWith('group:'))
+    .map(v => String(v).slice(6))
+    .filter(Boolean);
+
+  const params = new URLSearchParams();
+  params.set('subject', sid);
+  params.set('preset', preset);
+  params.set('mode', mode);
+  if (labelValues.length) params.set('labels', labelValues.join(','));
+  if (groupValues.length) params.set('groups', groupValues.join(','));
+
+  window.location.assign(`/manual-mask?${params.toString()}`);
+}
+
+function clearMaskSelection() {
+  const mode = document.getElementById('stl-mask-mode').value;
+  stlMaskSelections[mode] = new Set();
+  renderMaskSelectionList();
+}
+
+function getMaskItemDisplayName(item, fallbackId) {
+  return String(item?.canonical_name || item?.display_name || item?.name || `Region ${fallbackId}`);
+}
+
+function getMaskItemSearchText(item, fallbackId) {
+  const parts = [
+    getMaskItemDisplayName(item, fallbackId),
+    item?.raw_name,
+    item?.category,
+    item?.hemi,
+    `label ${fallbackId}`,
+  ];
+  if (Array.isArray(item?.aliases)) parts.push(...item.aliases);
+  return parts.filter(Boolean).join(' ').toLowerCase();
+}
+
+function buildMaskOptionLabel(item, fallbackId) {
+  const name = getMaskItemDisplayName(item, fallbackId);
+  const raw = item?.raw_name && String(item.raw_name).trim();
+  const aliases = Array.isArray(item?.aliases)
+    ? item.aliases.map(v => String(v).trim()).filter(Boolean)
+    : [];
+  const alias = aliases.find(v => v.toLowerCase() !== name.toLowerCase() && (!raw || v.toLowerCase() !== raw.toLowerCase()));
+  const bits = [name];
+  if (raw && raw.toLowerCase() !== name.toLowerCase()) bits.push(raw);
+  else if (alias) bits.push(alias);
+  bits.push(`[${fallbackId}]`);
+  return bits.join(' · ');
+}
+
+function getGroupSampleText(catalog, labelIds, maxSamples = 3) {
+  const items = Array.isArray(catalog?.items) ? catalog.items : [];
+  const byId = new Map(items.map(item => [Number(item.id), item]));
+  const samples = [];
+  for (const rawId of labelIds) {
+    const labelId = Number(rawId);
+    if (!Number.isFinite(labelId)) continue;
+    const item = byId.get(labelId);
+    if (!item) continue;
+    const label = getMaskItemDisplayName(item, labelId);
+    if (!samples.includes(label)) samples.push(label);
+    if (samples.length >= maxSamples) break;
+  }
+  return samples.length ? ` • ${samples.join(', ')}` : '';
+}
+
+function getSelectedMaskSummary(catalog, mode, selectedValues, maxSamples = 3) {
+  const items = Array.isArray(catalog?.items) ? catalog.items : [];
+  const byId = new Map(items.map(item => [Number(item.id), item]));
+  const samples = [];
+
+  if (mode === 'by_region') {
+    for (const value of selectedValues) {
+      if (!value.startsWith('label:')) continue;
+      const labelId = Number(value.slice(6));
+      if (!Number.isFinite(labelId)) continue;
+      const item = byId.get(labelId);
+      const label = getMaskItemDisplayName(item, labelId);
+      if (!samples.includes(label)) samples.push(label);
+      if (samples.length >= maxSamples) break;
+    }
+  } else {
+    const groups = (catalog?.groups && catalog.groups[mode]) ? catalog.groups[mode] : {};
+    for (const value of selectedValues) {
+      if (!value.startsWith('group:')) continue;
+      const groupName = value.slice(6);
+      const labels = Array.isArray(groups[groupName]) ? groups[groupName] : [];
+      const sample = getGroupSampleText(catalog, labels, 2).replace(/^ • /, '');
+      if (!samples.includes(groupName)) samples.push(sample ? `${groupName} (${sample})` : groupName);
+      if (samples.length >= maxSamples) break;
+    }
+  }
+
+  return samples.length ? ` · ${samples.join(' | ')}` : '';
+}
+
+function renderMaskSelectionList() {
+  const mode = document.getElementById('stl-mask-mode')?.value || 'by_region';
+  const preset = document.getElementById('stl-preset')?.value || 'standard';
+  const panel = document.getElementById('stl-mask-panel');
+  if (panel) panel.style.display = AUTO_MASK_PRESETS.has(preset) ? '' : 'none';
+
+  const list = document.getElementById('stl-mask-items');
+  const search = (document.getElementById('stl-mask-search')?.value || '').trim().toLowerCase();
+  const summary = document.getElementById('stl-mask-summary');
+  if (!list || !summary) return;
+
+  const catalog = getCurrentMaskCatalog();
+  if (!catalog) {
+    list.innerHTML = '';
+    summary.textContent = 'Loading atlas catalog...';
+    return;
+  }
+
+  const selected = stlMaskSelections[mode] || new Set();
+  const options = [];
+  if (mode === 'by_region') {
+    const items = Array.isArray(catalog.items) ? catalog.items : [];
+    for (const item of items) {
+      const labelId = Number(item.id);
+      if (!Number.isFinite(labelId)) continue;
+      const text = buildMaskOptionLabel(item, labelId);
+      const searchText = getMaskItemSearchText(item, labelId);
+      if (search && !searchText.includes(search)) continue;
+      const value = `label:${labelId}`;
+      options.push({ value, text, labelId, item, searchText });
+    }
+  } else {
+    const groups = (catalog.groups && catalog.groups[mode]) ? catalog.groups[mode] : {};
+    for (const groupName of Object.keys(groups).sort()) {
+      const labels = Array.isArray(groups[groupName]) ? groups[groupName] : [];
+      const sampleText = getGroupSampleText(catalog, labels);
+      const text = `${groupName} (${labels.length} labels)${sampleText}`;
+      if (search && !text.toLowerCase().includes(search)) continue;
+      options.push({ value: `group:${groupName}`, text, searchText: text.toLowerCase() });
+    }
+  }
+
+  list.innerHTML = options.map(opt => {
+    const isSelected = selected.has(opt.value) ? ' selected' : '';
+    return `<option value="${opt.value}"${isSelected}>${opt.text}</option>`;
+  }).join('');
+
+  summary.textContent = selected.size
+    ? `${selected.size} selected · mode=${mode}`
+    : 'No regions selected';
+}
+
+function resolveTargets(mode) {
+  if (mode === 'all') return Object.keys(subjects).sort();
+  if (mode === 'focused') return selectedSubject ? [selectedSubject] : [];
+  if (mode === 'checked') return [...checkedSubjects].sort();
+  return [];
+}
+
+function isFastsurferReady(subjectId) {
+  return subjects?.[subjectId]?.stages?.fastsurfer === 'completed';
+}
+
+function resolveStlReadyTargets(mode) {
+  return resolveTargets(mode).filter(isFastsurferReady);
+}
+
+function updateActionButtons() {
+  const nSubjects = Object.keys(subjects).length;
+  const runMain = document.getElementById('btn-run-main');
+  const stlMain = document.getElementById('btn-stl-main');
+  if (!runMain || !stlMain) return;
+
+  const runLabel = runMode === 'all' ? 'ALL' : runMode === 'focused' ? 'FOCUSED' : 'CHECKED';
+  runMain.textContent = runAfter ? `RUN + STL ${runLabel}` : `RUN ${runLabel}`;
+
+  const stlTargets = resolveTargets(stlMode);
+  const stlReadyTargets = resolveStlReadyTargets(stlMode);
+
+  if (stlMode === 'all') stlMain.textContent = `STL ALL (${stlReadyTargets.length})`;
+  if (stlMode === 'focused') stlMain.textContent = `STL FOCUSED (${stlReadyTargets.length})`;
+  if (stlMode === 'checked') stlMain.textContent = `STL CHECKED (${stlReadyTargets.length})`;
+
+  runMain.disabled = nSubjects === 0 || resolveTargets(runMode).length === 0;
+  // Keep STL action clickable when targets exist so users get an explicit reason in logs.
+  stlMain.disabled = nSubjects === 0 || stlTargets.length === 0;
+  if (stlMain.disabled) {
+    stlMain.title = 'Select at least one subject target for STL';
+  } else if (stlReadyTargets.length === 0) {
+    stlMain.title = 'No selected targets are FastSurfer-complete yet; click for details';
+  } else {
+    stlMain.title = `${stlReadyTargets.length}/${stlTargets.length} selected subject(s) ready`;
+  }
+}
+
+function renderResults() {
+  const list = document.getElementById('results-list');
+  const ids = Object.keys(subjects).sort();
+  const blocks = [];
+  for (const id of ids) {
+    const artifacts = (subjects[id].artifacts || []);
+    if (!artifacts.length) continue;
+    const links = artifacts.map(a => {
+      const q = a.quality || {};
+      const faces = Number.isFinite(Number(q.faces)) ? Number(q.faces).toLocaleString() : 'n/a';
+      const vertices = Number.isFinite(Number(q.vertices)) ? Number(q.vertices).toLocaleString() : 'n/a';
+      const mode = q.decimation_mode || 'n/a';
+      const ratio = Number.isFinite(Number(q.requested_decimation_ratio)) ? Number(q.requested_decimation_ratio).toFixed(2) : 'n/a';
+      const preset = q.preset || 'unknown';
+      const sel = q.selection || {};
+      const selMode = sel.mode || 'n/a';
+      const selLabel = sel.selected_label ? `${sel.selected_label.name || 'label'}:${sel.selected_label.id}` : '';
+      const selGroupCount = Array.isArray(sel.selected_groups) ? sel.selected_groups.length : 0;
+      const selSummary = selLabel || (selGroupCount ? `${selGroupCount} groups` : 'n/a');
+      return `<div style="margin-bottom:6px;">
+        <a href="${a.url}" target="_blank">${a.name}</a>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:2px;">
+          preset=${preset} · faces=${faces} · vertices=${vertices} · mode=${mode} · ratio=${ratio} · mask=${selMode}:${selSummary}
+        </div>
+      </div>`;
+    }).join('');
+    blocks.push(`<div class="result-item"><div class="result-subject">${id} <button class="stl-btn" onclick="openManualMaskEditorForSubject('${id}')">EDIT MASK</button></div><div class="result-links">${links}</div></div>`);
+  }
+  list.innerHTML = blocks.length
+    ? blocks.join('')
+    : `<div class="result-item"><div class="result-subject">No STL outputs yet</div></div>`;
+}
+
+function renderStlJobs() {
+  const el = document.getElementById('stl-jobs');
+  if (!stlJobs.length) {
+    el.innerHTML = '<div class="stl-job">No STL jobs yet</div>';
+    return;
+  }
+  el.innerHTML = stlJobs.slice(0, 20).map(j => {
+    const canCancel = j.status === 'pending';
+    const canEdit = j.status === 'completed';
+    return `<div class="stl-job">
+      <span>${j.subject_id} · ${j.preset} · <span class="status-${j.status}">${j.status}</span></span>
+      ${canEdit ? `<button class="stl-btn" onclick="openManualMaskEditorForSubject('${j.subject_id}')">EDIT MASK</button>` : ''}
+      ${canCancel ? `<button class="stl-btn" onclick="apiCancelStl('${j.id}')">CANCEL</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function toggleAdvanced() {
+  const adv = document.getElementById('stl-advanced');
+  adv.hidden = !adv.hidden;
+}
+
+function parseLabelCsv(value) {
+  if (!value || !value.trim()) return [];
+  return value.split(',').map(x => x.trim()).filter(Boolean).map(x => Number(x)).filter(x => Number.isFinite(x));
+}
+
+function getAdvancedParams() {
+  return {
+    smoothing_iterations: Number(document.getElementById('stl-smooth-iters').value || 8),
+    smoothing_lambda: Number(document.getElementById('stl-smooth-lambda').value || 0.45),
+    decimation_ratio: Number(document.getElementById('stl-decimation').value || 0.65),
+    min_component_voxels: Number(document.getElementById('stl-min-vox').value || 1000),
+    open_iterations: Number(document.getElementById('stl-open-iters').value || 0),
+    close_iterations: Number(document.getElementById('stl-close-iters').value || 1),
+    include_labels: parseLabelCsv(document.getElementById('stl-include').value),
+    exclude_labels: parseLabelCsv(document.getElementById('stl-exclude').value),
+    external_cortex_only: document.getElementById('stl-cortex-only').checked,
+    normalize_signal: document.getElementById('stl-normalize').checked,
+    intensity_threshold: Number(document.getElementById('stl-threshold').value || 0.2),
+  };
+}
+
+function buildStlPayload() {
+  const preset = document.getElementById('stl-preset').value;
+  const params = {};
+
+  if (AUTO_MASK_PRESETS.has(preset)) {
+    const mode = document.getElementById('stl-mask-mode').value;
+    const catalog = getCurrentMaskCatalog();
+    if (!catalog) {
+      throw new Error('Atlas catalog is not loaded yet. Please wait or click REFRESH.');
+    }
+
+    const selected = stlMaskSelections[mode] || new Set();
+    const selectedValues = [...selected];
+    if (!selectedValues.length) {
+      throw new Error(`No ${mode.replace('by_', '')} selection found. Select at least one item first.`);
+    }
+
+    const selectedGroups = [];
+    const selectedItems = [];
+    const selectedLabels = [];
+
+    if (mode === 'by_region') {
+      const itemRecords = new Map((catalog.items || []).map(item => [Number(item.id), item]));
+      for (const value of selectedValues) {
+        if (!value.startsWith('label:')) continue;
+        const labelId = Number(value.slice(6));
+        if (!Number.isFinite(labelId)) continue;
+        selectedLabels.push(labelId);
+        const record = itemRecords.get(labelId) || {};
+        const canonicalName = getMaskItemDisplayName(record, labelId);
+        const rawName = record?.raw_name ? String(record.raw_name) : '';
+        selectedItems.push({
+          id: labelId,
+          name: canonicalName,
+          display_name: canonicalName,
+          canonical_name: canonicalName,
+          raw_name: rawName || null,
+          aliases: Array.isArray(record?.aliases) ? record.aliases : [],
+          category: record?.category || null,
+          hemi: record?.hemi || null,
+        });
+      }
+      params.split_by_label = true;
+    } else {
+      const groups = (catalog.groups && catalog.groups[mode]) ? catalog.groups[mode] : {};
+      for (const value of selectedValues) {
+        if (!value.startsWith('group:')) continue;
+        const groupName = value.slice(6);
+        selectedGroups.push(groupName);
+        const labels = Array.isArray(groups[groupName]) ? groups[groupName] : [];
+        labels.forEach(l => {
+          const labelId = Number(l);
+          if (Number.isFinite(labelId)) selectedLabels.push(labelId);
+        });
+      }
+      params.split_by_label = true;
+    }
+
+    const dedupLabels = [...new Set(selectedLabels)];
+    if (!dedupLabels.length) {
+      throw new Error('The current selection resolved to no labels. Try a different group/region.');
+    }
+
+    params.mask_mode = mode;
+    params.atlas_id = String(catalog.atlas_id || 'fastsurfer_native');
+    params.selected_groups = selectedGroups;
+    params.selected_items = selectedItems;
+    params.selected_labels = dedupLabels;
+    params.include_labels = dedupLabels;
+  }
+
+  if (stlAdvancedTouched) {
+    Object.assign(params, getAdvancedParams());
+  }
+
+  if (!Object.keys(params).length) return { preset };
+  return { preset, params };
+}
+
+function applyLogFilter() {
+  document.querySelectorAll('#log-output .log-line').forEach(el => {
+    const sub = el.dataset.subject;
+    el.classList.toggle('hidden', logFilter !== null && sub !== logFilter && sub !== null);
+  });
+}
+
+// ── Log rendering ─────────────────────────────────────────────────────────────
+function handleLogMsg(msg) {
+  const container = document.getElementById('log-output');
+  const now = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const el  = document.createElement('div');
+  el.className = `log-line level-${msg.level||'info'}`;
+  el.dataset.subject = msg.subject_id || '';
+
+  const hidden = logFilter !== null && msg.subject_id !== logFilter;
+  if (hidden) el.classList.add('hidden');
+
+  const subHtml = msg.subject_id
+    ? `<span class="ll-sub">${msg.subject_id}</span>`
+    : '';
+
+  el.innerHTML = `
+    <span class="ll-time">${now}</span>
+    ${subHtml}
+    <span class="ll-msg">${escHtml(msg.message||'')}</span>`;
+
+  container.appendChild(el);
+  if (autoscroll) container.scrollTop = container.scrollHeight;
+}
+
+function log(message, level='info', subject=null) {
+  handleLogMsg({ message, level, subject_id: subject });
+}
+
+function clearLogs() {
+  document.getElementById('log-output').innerHTML = '';
+}
+
+function toggleAutoscroll() {
+  autoscroll = !autoscroll;
+  const btn = document.getElementById('autoscroll-btn');
+  btn.textContent = autoscroll ? '↓ AUTO' : '↓ OFF';
+  btn.style.color = autoscroll ? '' : 'var(--red)';
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Drag & drop ───────────────────────────────────────────────────────────────
+function setupDragDrop() {
+  const dz = document.getElementById('drop-zone');
+
+  dz.addEventListener('dragover', e => {
+    e.preventDefault(); e.stopPropagation();
+    dz.classList.add('drag-over');
+  });
+  dz.addEventListener('dragleave', e => {
+    e.preventDefault();
+    dz.classList.remove('drag-over');
+  });
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); e.stopPropagation();
+    dz.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  });
+
+  document.getElementById('file-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) uploadFile(file);
+  });
+}
+
+async function uploadFile(file) {
+  if (!file.name.endsWith('.zip')) {
+    log(`[upload] Only .zip files are supported`, 'error');
+    return;
+  }
+  log(`[upload] Uploading ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)…`, 'stage');
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res  = await fetch('/api/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) {
+      log(`[upload] Error: ${data.error}`, 'error');
+    } else {
+      log(`[upload] ${data.message} — ${data.subjects?.length||0} subjects found`, 'stage');
+    }
+  } catch(err) {
+    log(`[upload] Network error: ${err}`, 'error');
+  }
+}
+
+async function parseJsonSafe(res) {
+  try {
+    return await res.json();
+  } catch {
+    return {};
+  }
+}
+
+async function postJson(url, bodyObj) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(bodyObj),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) {
+    throw new Error(data.detail || data.error || `${url} failed (${res.status})`);
+  }
+  return data;
+}
+
+// ── API calls ─────────────────────────────────────────────────────────────────
+async function apiRunAction() {
+  if (runAfter) {
+    await apiRunAndStlAction();
+    return;
+  }
+
+  const targets = resolveTargets(runMode);
+  if (!targets.length) {
+    log('[pipeline] No subjects selected for RUN mode', 'error');
+    return;
+  }
+
+  if (runMode === 'all') {
+    log('[pipeline] Starting all subjects…', 'stage');
+    await fetch('/api/run-all', { method: 'POST' });
+    return;
+  }
+
+  log(`[pipeline] Starting ${targets.length} selected subject(s)…`, 'stage');
+  for (const sid of targets) {
+    await fetch(`/api/run/${sid}`, { method: 'POST' });
+  }
+}
+
+async function apiRunAndStlAction() {
+  let payload;
+  try {
+    payload = buildStlPayload();
+  } catch (err) {
+    log(`[stl] ${err.message || err}`, 'error');
+    return;
+  }
+  const targets = resolveTargets(runMode);
+  if (!targets.length) {
+    log('[pipeline] No subjects selected for RUN + STL after mode', 'error');
+    return;
+  }
+
+  log(`[pipeline] Starting ${targets.length === 1 ? '1 selected subject' : `${targets.length} selected subjects`} with STL after FastSurfer…`, 'stage');
+
+  if (runMode === 'all') {
+    await fetch('/api/run-all', { method: 'POST' });
+  } else {
+    for (const sid of targets) {
+      await fetch(`/api/run/${sid}`, { method: 'POST' });
+    }
+  }
+
+  for (const sid of targets) {
+    try {
+      const data = await postJson(`/api/stl/${sid}`, payload);
+      if (data.deferred) {
+        log(`[stl] ${sid}: intent deferred until FastSurfer completes (fastsurfer=${data.fastsurfer})`, 'stage', sid);
+      } else {
+        log(`[stl] ${sid}: STL queued immediately`, 'stage', sid);
+      }
+    } catch (err) {
+      log(`[stl] ${sid}: ${err.message || err}`, 'error', sid);
+    }
+  }
+}
+
+async function apiReset() {
+  clearLogs();
+  log('[pipeline] Pipeline reset', 'stage');
+  await fetch('/api/reset', { method: 'POST' });
+  clearFilter();
+}
+
+async function apiStlAction() {
+  let payload;
+  try {
+    payload = buildStlPayload();
+  } catch (err) {
+    log(`[stl] ${err.message || err}`, 'error');
+    return;
+  }
+  const targets = resolveTargets(stlMode);
+  if (!targets.length) {
+    log('[stl] No subjects selected for STL mode', 'error');
+    return;
+  }
+
+  log(`[stl] Submitting STL intents for ${targets.length} subject(s) (${payload.preset})`, 'stage');
+  for (const sid of targets) {
+    try {
+      const data = await postJson(`/api/stl/${sid}`, payload);
+      if (data.deferred) {
+        log(`[stl] ${sid}: deferred until FastSurfer completes (fastsurfer=${data.fastsurfer})`, 'stage', sid);
+      } else {
+        log(`[stl] ${sid}: STL queued`, 'stage', sid);
+      }
+    } catch (err) {
+      log(`[stl] ${sid}: ${err.message || err}`, 'error', sid);
+    }
+  }
+}
+
+async function apiCancelStl(jobId) {
+  await fetch(`/api/stl/cancel/${jobId}`, { method: 'POST' });
+}
+
+async function apiDeleteStlSubject(subjectId) {
+  const res = await fetch(`/api/stl/${encodeURIComponent(subjectId)}`, { method: 'DELETE' });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) {
+    throw new Error(data.detail || data.error || `DELETE /api/stl/${subjectId} failed (${res.status})`);
+  }
+  return data;
+}
+
+async function apiDeleteAllStl() {
+  const res = await fetch('/api/stl', { method: 'DELETE' });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) {
+    throw new Error(data.detail || data.error || `DELETE /api/stl failed (${res.status})`);
+  }
+  return data;
+}
+
+async function confirmCleanupStl() {
+  const scope = document.getElementById('stl-cleanup-scope').value;
+  const scopeLabel = scope === 'all' ? 'all STL outputs for all subjects' : 'all STL outputs for the current subject';
+  const subjectId = selectedSubject || getMaskCatalogSubjectId();
+  if (scope === 'subject' && !subjectId) {
+    log('[cleanup] No current subject selected for STL cleanup', 'error');
+    return;
+  }
+
+  const ok = window.confirm(
+    `Permanently delete ${scopeLabel}? This will remove the STL files, their sidecar JSON files, and the visible STL result entries.`
+  );
+  if (!ok) return;
+
+  try {
+    const data = scope === 'all'
+      ? await apiDeleteAllStl()
+      : await apiDeleteStlSubject(subjectId);
+    log(`[cleanup] ${data.message || 'STL results deleted'} — ${data.notice || ''}`, 'stage', scope === 'all' ? null : subjectId);
+    if (scope === 'subject' && subjectId) {
+      stlCatalogCache[subjectId] = null;
+    }
+    if (scope === 'all') {
+      stlCatalogCache = {};
+    }
+  } catch (err) {
+    log(`[cleanup] ${err.message || err}`, 'error');
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+setupDragDrop();
+connect();
+updateActionButtons();
+
+applyPresetDefaultsToAdvanced(document.getElementById('stl-preset').value);
+document.getElementById('stl-preset').addEventListener('change', () => {
+  const preset = document.getElementById('stl-preset').value;
+  if (!stlAdvancedTouched) {
+    applyPresetDefaultsToAdvanced(preset);
+  }
+  if (AUTO_MASK_PRESETS.has(preset)) {
+    document.getElementById('stl-mask-mode').value = preset;
+    ensureMaskCatalog(false);
+  }
+  renderMaskSelectionList();
+});
+
+document.getElementById('stl-mask-mode').addEventListener('change', () => {
+  const mode = document.getElementById('stl-mask-mode').value;
+  if (AUTO_MASK_PRESETS.has(mode)) {
+    document.getElementById('stl-preset').value = mode;
+    if (!stlAdvancedTouched) {
+      applyPresetDefaultsToAdvanced(mode);
+    }
+  }
+  renderMaskSelectionList();
+});
+
+document.getElementById('stl-mask-search').addEventListener('input', () => {
+  renderMaskSelectionList();
+});
+
+document.getElementById('stl-mask-items').addEventListener('change', (e) => {
+  const mode = document.getElementById('stl-mask-mode').value;
+  const next = new Set();
+  [...e.target.selectedOptions].forEach(opt => next.add(opt.value));
+  stlMaskSelections[mode] = next;
+  renderMaskSelectionList();
+});
+
+[
+  'stl-smooth-iters',
+  'stl-smooth-lambda',
+  'stl-decimation',
+  'stl-min-vox',
+  'stl-open-iters',
+  'stl-close-iters',
+  'stl-include',
+  'stl-exclude',
+  'stl-cortex-only',
+  'stl-normalize',
+  'stl-threshold',
+].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', () => { stlAdvancedTouched = true; });
+  el.addEventListener('change', () => { stlAdvancedTouched = true; });
+});
+
+renderMaskSelectionList();
+ensureMaskCatalog(false);
+
+document.addEventListener('click', () => closeMenus());
+</script>
+</body>
+</html>

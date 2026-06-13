@@ -1,0 +1,89 @@
+services:
+
+  # ─── Main orchestrator (web UI + pipeline engine) ─────────────────────────
+  orchestrator:
+    build: .
+    image: neuro-orchestrator:latest
+    container_name: neuro-orchestrator
+    stdin_open: true
+    tty: true
+    ports:
+      - "8080:8080"            # open http://localhost:8080 in your browser
+    volumes:
+      - .:/workspace
+      - ./data:/data
+      - ./outputs:/outputs
+      - ./licenses:/licenses:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DATA_DIR=/data
+      - OUTPUT_DIR=/outputs
+      - FS_LICENSE=/licenses/license.txt
+      - MRIQC_NPROCS=${MRIQC_NPROCS:-1}
+      - MRIQC_OMP_NTHREADS=${MRIQC_OMP_NTHREADS:-1}
+      - FASTSURFER_USE_GPU=${FASTSURFER_USE_GPU:-0}  # GTX 1050 Ti (CUDA 6.1) is below PyTorch minimum (7.5); default CPU
+      - FASTSURFER_GPU_DEVICE=${FASTSURFER_GPU_DEVICE:-all}
+      - FASTSURFER_DOCKER_USER=${FASTSURFER_DOCKER_USER:-0:0}
+      - HOST_PROJECT_DIR=${HOST_PROJECT_DIR:-}
+      - MOCK_MODE=0            # set to 1 to demo without real tools
+    command: python src/web_server.py
+
+  # ─── TUI alternative — run with: docker compose run tui ───────────────────
+  tui:
+    build: .
+    image: neuro-orchestrator:latest
+    container_name: neuro-orchestrator-tui
+    profiles: [tui]
+    stdin_open: true
+    tty: true
+    volumes:
+      - .:/workspace
+      - ./data:/data
+      - ./outputs:/outputs
+      - ./licenses:/licenses:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DATA_DIR=/data
+      - OUTPUT_DIR=/outputs
+      - FS_LICENSE=/licenses/license.txt
+      - MRIQC_NPROCS=${MRIQC_NPROCS:-1}
+      - MRIQC_OMP_NTHREADS=${MRIQC_OMP_NTHREADS:-1}
+      - FASTSURFER_USE_GPU=${FASTSURFER_USE_GPU:-0}  # GTX 1050 Ti (CUDA 6.1) is below PyTorch minimum (7.5); default CPU
+      - FASTSURFER_GPU_DEVICE=${FASTSURFER_GPU_DEVICE:-all}
+      - FASTSURFER_DOCKER_USER=${FASTSURFER_DOCKER_USER:-0:0}
+      - HOST_PROJECT_DIR=${HOST_PROJECT_DIR:-}
+      - MOCK_MODE=0
+    command: python src/orchestrator.py
+
+  # ─── Neuroimaging tool containers (spawned on-demand via Docker socket) ────
+  mriqc:
+    image: nipreps/mriqc:latest
+    profiles: [tools]
+    volumes:
+      - ./data:/data:ro
+      - ./outputs/mriqc:/out
+
+  fastsurfer:
+    image: deepmi/fastsurfer:latest
+    profiles: [tools]
+    volumes:
+      - ./data:/data:ro
+      - ./outputs/fastsurfer:/output
+      - ./licenses:/licenses:ro
+    environment:
+      - FS_LICENSE=/licenses/license.txt
+
+  fmriprep:
+    image: nipreps/fmriprep:latest
+    profiles: [tools]
+    volumes:
+      - ./data:/data:ro
+      - ./outputs/fmriprep:/out
+      - ./licenses:/licenses:ro
+
+  mrtrix3:
+    image: mrtrix3/mrtrix3:latest
+    profiles: [tools]
+    volumes:
+      - ./data:/data:ro
+      - ./outputs/mrtrix3:/output

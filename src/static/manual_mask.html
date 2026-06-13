@@ -1,0 +1,1157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manual Mask Editor</title>
+  <style>
+    :root {
+      --bg: #07090e;
+      --panel: #0f1822;
+      --panel-2: #162030;
+      --line: #2c4060;
+      --text: #d8ecff;
+      --muted: #7aaacf;
+      --accent: #3dbeff;
+      --danger: #ff4f4f;
+      --ok: #4fd97a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Space Mono", monospace;
+      color: var(--text);
+      background: radial-gradient(900px 550px at 0% -10%, #0d2340 0%, var(--bg) 55%);
+      min-height: 100vh;
+    }
+    .wrap {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 14px;
+      padding: 14px;
+    }
+    .panel {
+      background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 18px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .muted { color: var(--muted); }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    input, select, button {
+      border: 1px solid var(--line);
+      background: #0c1520;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 13px;
+    }
+    input[type="number"] { width: 80px; }
+    button { cursor: pointer; }
+    button.primary { background: #0e2e4a; border-color: #3dbeff; color: #3dbeff; }
+    button.good { background: #0d3620; border-color: #4fd97a; color: #4fd97a; }
+    button.danger { background: #3a0d0d; border-color: #ff4f4f; color: #ff4f4f; }
+    button:disabled { opacity: var(--state-disabled-opacity); cursor: not-allowed; }
+    .versions {
+      max-height: 280px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #0a1220;
+    }
+    .version-item {
+      padding: 8px;
+      border-bottom: 1px solid #1c3048;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .version-item:last-child { border-bottom: 0; }
+    .version-item.active { background: #0f2d4a; border-left: 3px solid var(--accent); }
+    .version-item .sub { color: var(--muted); font-size: 11px; }
+    .main {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 12px;
+    }
+    .slices {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .slice-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
+      background: #0b1725;
+    }
+    .slice-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .slice-canvas {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border: 1px solid #2c4060;
+      border-radius: 8px;
+      image-rendering: pixelated;
+      background: #050a10;
+      cursor: crosshair;
+    }
+    .log {
+      max-height: 190px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #070e18;
+      padding: 8px;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+    .ok { color: var(--ok); }
+    .err { color: var(--danger); }
+    @media (max-width: 1050px) {
+      .wrap { grid-template-columns: 1fr; }
+      .slices { grid-template-columns: 1fr; }
+    }
+  </style>
+  <style>
+    :root {
+      --ui-shadow-lg: 0 16px 42px rgba(0, 0, 0, 0.34);
+      --ui-shadow-sm: 0 9px 22px rgba(0, 0, 0, 0.26);
+      --ctl-font-size: 12px;
+      --ctl-pad-y: 7px;
+      --ctl-pad-x: 10px;
+      --ctl-radius: 8px;
+      --ctl-min-h: 34px;
+      --list-item-radius: 8px;
+      --list-item-pad-y: 8px;
+      --list-item-pad-x: 10px;
+      --state-focus: 0 0 0 3px rgba(61, 190, 255, 0.30);
+      --state-focus-ring: 2px solid var(--accent);
+      --state-disabled-opacity: .42;
+      --state-success-bg: rgba(79, 217, 122, .12);
+      --state-success-border: rgba(79, 217, 122, .90);
+      --state-error-bg: rgba(255, 79, 79, .14);
+      --state-error-border: rgba(255, 79, 79, .90);
+      --state-warning-bg: rgba(255, 217, 94, .12);
+      --state-warning-border: rgba(255, 217, 94, .90);
+    }
+
+    body {
+      font-family: "Space Mono", monospace;
+      background:
+        radial-gradient(980px 620px at 8% -10%, rgba(61, 190, 255, 0.22), transparent 58%),
+        radial-gradient(840px 560px at 96% 8%, rgba(61, 190, 255, 0.14), transparent 60%),
+        var(--bg);
+    }
+
+    .panel,
+    .slice-card,
+    .versions,
+    .log {
+      box-shadow: var(--ui-shadow-sm);
+      animation: ui-rise 300ms ease-out;
+    }
+
+    .panel {
+      backdrop-filter: blur(8px);
+    }
+
+    .row {
+      gap: 9px;
+      margin-bottom: 9px;
+    }
+
+    button,
+    input,
+    select {
+      min-height: var(--ctl-min-h);
+      font-size: var(--ctl-font-size);
+      border-radius: var(--ctl-radius);
+      padding: var(--ctl-pad-y) var(--ctl-pad-x);
+      line-height: 1.2;
+    }
+
+    input[type="range"] {
+      min-height: 24px;
+      padding: 0;
+    }
+
+    .versions {
+      padding: 4px;
+    }
+
+    .version-item {
+      margin-bottom: 4px;
+      border: 1px solid #1e3654;
+      border-radius: var(--list-item-radius);
+      padding: var(--list-item-pad-y) var(--list-item-pad-x);
+    }
+
+    .version-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .version-item.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(61, 190, 255, 0.20);
+    }
+
+    .version-item:hover {
+      border-color: rgba(61, 190, 255, 0.70);
+      background: rgba(15, 45, 74, 0.85);
+    }
+
+    .version-item:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible {
+      outline: var(--state-focus-ring);
+      box-shadow: var(--state-focus);
+    }
+
+    .ok {
+      color: var(--state-success-border);
+    }
+
+    .err {
+      color: var(--state-error-border);
+    }
+
+    .slice-canvas:focus-visible {
+      outline: var(--state-focus-ring);
+      box-shadow: var(--state-focus);
+    }
+
+    .panel {
+      border-color: rgba(61, 190, 255, 0.14);
+    }
+
+    .slice-card {
+      border-color: rgba(61, 190, 255, 0.12);
+    }
+
+    .versions {
+      border-color: rgba(61, 190, 255, 0.14);
+    }
+
+    .log {
+      border-color: rgba(61, 190, 255, 0.14);
+    }
+
+    button.primary {
+      border-color: rgba(61, 190, 255, 0.55);
+    }
+
+    button.good {
+      border-color: rgba(79, 217, 122, 0.55);
+    }
+
+    button.danger {
+      border-color: rgba(255, 79, 79, 0.55);
+    }
+
+    .slice-head {
+      font-size: 11px;
+      letter-spacing: .05em;
+      margin-bottom: 8px;
+    }
+
+    button,
+    input,
+    select {
+      transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease, color 180ms ease;
+    }
+
+    button:hover {
+      border-color: rgba(61, 190, 255, 0.60);
+      background: rgba(13, 46, 74, 0.70);
+    }
+    button.primary:hover {
+      background: #133f66;
+      border-color: var(--accent);
+    }
+    button.good:hover {
+      background: #144d2e;
+      border-color: var(--ok);
+    }
+    button.danger:hover {
+      background: #521515;
+      border-color: var(--danger);
+    }
+    button:disabled:hover {
+      background: transparent;
+      border-color: var(--line);
+    }
+
+    .versions::-webkit-scrollbar,
+    .log::-webkit-scrollbar { width: 4px; }
+    .versions::-webkit-scrollbar-track,
+    .log::-webkit-scrollbar-track { background: transparent; }
+    .versions::-webkit-scrollbar-thumb,
+    .log::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+      box-shadow: 0 0 0 3px rgba(110, 199, 255, 0.22);
+    }
+
+    @keyframes ui-rise {
+      from {
+        opacity: 0.76;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <aside class="panel">
+      <h1>Manual Mask Editor</h1>
+      <div class="row">
+        <span class="muted">Subject:</span>
+        <strong id="subject-label">-</strong>
+      </div>
+      <div class="row muted" id="seed-info"></div>
+
+      <div class="row">
+        <button id="btn-back">BACK TO DASHBOARD</button>
+      </div>
+      <div class="row">
+        <button id="btn-init" class="primary">INIT FROM AUTO</button>
+        <button id="btn-init-empty">INIT EMPTY MASK</button>
+        <button id="btn-refresh">REFRESH</button>
+      </div>
+      <div class="row muted">Use INIT FROM AUTO to refine automatic selection, or INIT EMPTY MASK to create from scratch.</div>
+      <div class="row">
+        <button id="btn-export" class="good">EXPORT STL FROM VERSION</button>
+        <button id="btn-delete" class="danger">DELETE CURRENT VERSION</button>
+      </div>
+      <div class="row">
+        <button id="btn-undo">UNDO (CTRL+Z)</button>
+        <button id="btn-redo">REDO (CTRL+Y)</button>
+      </div>
+
+      <div class="row" style="margin-top:10px;"><strong>Versions</strong></div>
+      <div id="versions" class="versions"></div>
+
+      <div class="row" style="margin-top:10px;"><strong>Morphology</strong></div>
+      <div class="row">
+        <label>Iterations</label>
+        <input id="op-iters" type="number" min="1" value="1">
+      </div>
+      <div class="row">
+        <button data-op="grow">GROW</button>
+        <button data-op="shrink">SHRINK</button>
+        <button data-op="fill_holes">FILL HOLES</button>
+      </div>
+      <div class="row">
+        <button data-op="keep_largest">KEEP LARGEST</button>
+      </div>
+
+      <div class="row" style="margin-top:10px;"><strong>Paint / Erase</strong></div>
+      <div class="row">
+        <label>Underlay opacity</label>
+        <input id="anatomy-opacity" type="range" min="0" max="1" step="0.05" value="0.55">
+      </div>
+      <div class="row">
+        <label>Z</label><input id="c-z" type="number" min="0" value="0">
+        <label>Y</label><input id="c-y" type="number" min="0" value="0">
+        <label>X</label><input id="c-x" type="number" min="0" value="0">
+      </div>
+      <div class="row">
+        <label>Radius</label><input id="c-r" type="number" min="1" value="2">
+      </div>
+      <div class="row">
+        <button data-op="paint">PAINT</button>
+        <button data-op="erase" class="danger">ERASE</button>
+      </div>
+      <div class="row">
+        <button id="btn-stroke-paint" class="primary">STROKE PAINT</button>
+        <button id="btn-stroke-erase" class="danger">STROKE ERASE</button>
+      </div>
+      <div class="row muted" id="stroke-status">Stroke mode: OFF</div>
+    </aside>
+
+    <section class="main">
+      <div class="panel">
+        <div class="row">
+          <span class="muted">Active version:</span>
+          <strong id="active-version">none</strong>
+          <span class="muted">Voxel count:</span>
+          <strong id="voxel-count">0</strong>
+        </div>
+      </div>
+
+      <div class="slices">
+        <div class="slice-card">
+          <div class="slice-head">
+            <span>Axial</span>
+            <input id="axial-index" type="range" min="0" max="0" value="0">
+          </div>
+          <canvas id="axial-canvas" class="slice-canvas"></canvas>
+        </div>
+        <div class="slice-card">
+          <div class="slice-head">
+            <span>Coronal</span>
+            <input id="coronal-index" type="range" min="0" max="0" value="0">
+          </div>
+          <canvas id="coronal-canvas" class="slice-canvas"></canvas>
+        </div>
+        <div class="slice-card">
+          <div class="slice-head">
+            <span>Sagittal</span>
+            <input id="sagittal-index" type="range" min="0" max="0" value="0">
+          </div>
+          <canvas id="sagittal-canvas" class="slice-canvas"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div id="log" class="log"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const q = new URLSearchParams(window.location.search);
+    const subjectId = q.get('subject') || '';
+    const seedPreset = q.get('preset') || 'by_region';
+    const seedMode = q.get('mode') || 'by_region';
+    const seedLabels = (q.get('labels') || '').split(',').map(v => Number(v)).filter(v => Number.isFinite(v));
+    const seedGroups = (q.get('groups') || '').split(',').map(v => v.trim()).filter(Boolean);
+
+    let versions = [];
+    let activeVersionId = null;
+    let activeShape = [0, 0, 0];
+    const sliceState = { axial: 0, coronal: 0, sagittal: 0 };
+    const versionHistory = [];
+    let versionHistoryIndex = -1;
+    let requestInFlight = 0;
+    let orthoviewRefreshTimer = null;
+    let anatomyOpacity = 0.55;
+    let strokeMode = null;
+    let strokeSession = null;
+    let pendingStrokeRetryOps = null;
+
+    function beginBusy() {
+      requestInFlight += 1;
+    }
+
+    function endBusy() {
+      requestInFlight = Math.max(0, requestInFlight - 1);
+    }
+
+    function setActionButtonsDisabled(disabled) {
+      [
+        'btn-back',
+        'btn-init',
+        'btn-init-empty',
+        'btn-refresh',
+        'btn-export',
+        'btn-delete',
+        'btn-undo',
+        'btn-redo',
+        'btn-stroke-paint',
+        'btn-stroke-erase',
+      ].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = disabled;
+      });
+      document.querySelectorAll('button[data-op]').forEach(btn => {
+        btn.disabled = disabled;
+      });
+    }
+
+    function updateUndoRedoState() {
+      const undoBtn = document.getElementById('btn-undo');
+      const redoBtn = document.getElementById('btn-redo');
+      if (undoBtn) undoBtn.disabled = versionHistoryIndex <= 0 || requestInFlight > 0;
+      if (redoBtn) redoBtn.disabled = versionHistoryIndex < 0 || versionHistoryIndex >= versionHistory.length - 1 || requestInFlight > 0;
+    }
+
+    function log(msg, cls = '') {
+      const el = document.getElementById('log');
+      const line = document.createElement('div');
+      if (cls) line.className = cls;
+      const ts = new Date().toLocaleTimeString();
+      line.textContent = `[${ts}] ${msg}`;
+      el.appendChild(line);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    async function parseJsonSafe(res) {
+      try { return await res.json(); } catch { return {}; }
+    }
+
+    async function apiGet(url) {
+      beginBusy();
+      try {
+        const res = await fetch(url);
+        const data = await parseJsonSafe(res);
+        if (!res.ok) throw new Error(data.error || data.detail || `${url} failed (${res.status})`);
+        return data;
+      } finally {
+        endBusy();
+        updateUndoRedoState();
+      }
+    }
+
+    async function apiPost(url, body) {
+      beginBusy();
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {}),
+        });
+        const data = await parseJsonSafe(res);
+        if (!res.ok) {
+          const err = new Error(data.error || data.detail || `${url} failed (${res.status})`);
+          err.status = res.status;
+          err.payload = data;
+          throw err;
+        }
+        return data;
+      } finally {
+        endBusy();
+        updateUndoRedoState();
+      }
+    }
+
+    async function apiDelete(url) {
+      beginBusy();
+      try {
+        const res = await fetch(url, { method: 'DELETE' });
+        const data = await parseJsonSafe(res);
+        if (!res.ok) {
+          const err = new Error(data.error || data.detail || `${url} failed (${res.status})`);
+          err.status = res.status;
+          err.payload = data;
+          throw err;
+        }
+        return data;
+      } finally {
+        endBusy();
+        updateUndoRedoState();
+      }
+    }
+
+    function renderVersions() {
+      const wrap = document.getElementById('versions');
+      if (!versions.length) {
+        wrap.innerHTML = '<div class="version-item muted">No versions yet</div>';
+        document.getElementById('btn-delete').disabled = true;
+        return;
+      }
+      wrap.innerHTML = versions.map(v => {
+        const active = v.version_id === activeVersionId ? ' active' : '';
+        const created = String(v.created_at || '').replace('T', ' ').replace('Z', '');
+        const op = v.operation_summary || 'n/a';
+        return `<div class="version-item${active}" data-version-id="${v.version_id}">
+          <div><strong>${v.version_id}</strong></div>
+          <div class="sub">${op}</div>
+          <div class="sub">vox=${Number(v.voxel_count || 0).toLocaleString()} · ${created}</div>
+        </div>`;
+      }).join('');
+
+      wrap.querySelectorAll('.version-item[data-version-id]').forEach(el => {
+        el.addEventListener('click', () => {
+          const id = el.getAttribute('data-version-id');
+          activateVersion(id);
+        });
+      });
+      document.getElementById('btn-delete').disabled = !activeVersionId;
+      updateUndoRedoState();
+    }
+
+    function recordVersionHistory(versionId) {
+      if (!versionId) return;
+      if (versionHistoryIndex >= 0 && versionHistory[versionHistoryIndex] === versionId) {
+        return;
+      }
+      if (versionHistoryIndex < versionHistory.length - 1) {
+        versionHistory.splice(versionHistoryIndex + 1);
+      }
+      versionHistory.push(versionId);
+      versionHistoryIndex = versionHistory.length - 1;
+      updateUndoRedoState();
+    }
+
+    async function loadCatalog(selectLatest = true) {
+      const data = await apiGet(`/api/mask/catalog/${encodeURIComponent(subjectId)}`);
+      versions = Array.isArray(data.versions) ? data.versions : [];
+      renderVersions();
+      if (!activeVersionId && selectLatest && versions.length) {
+        await activateVersion(versions[0].version_id);
+      } else if (activeVersionId) {
+        const exists = versions.find(v => v.version_id === activeVersionId);
+        if (!exists) {
+          if (versions.length) {
+            await activateVersion(versions[0].version_id);
+          } else {
+            activeVersionId = null;
+            activeShape = [0, 0, 0];
+            document.getElementById('active-version').textContent = 'none';
+            document.getElementById('voxel-count').textContent = '0';
+          }
+        }
+      }
+    }
+
+    function updateSliceSliders() {
+      const zMax = Math.max(0, Number(activeShape[0] || 1) - 1);
+      const yMax = Math.max(0, Number(activeShape[1] || 1) - 1);
+      const xMax = Math.max(0, Number(activeShape[2] || 1) - 1);
+      const axial = document.getElementById('axial-index');
+      const coronal = document.getElementById('coronal-index');
+      const sagittal = document.getElementById('sagittal-index');
+      axial.max = String(zMax);
+      coronal.max = String(yMax);
+      sagittal.max = String(xMax);
+      if (sliceState.axial > zMax) sliceState.axial = Math.floor(zMax / 2);
+      if (sliceState.coronal > yMax) sliceState.coronal = Math.floor(yMax / 2);
+      if (sliceState.sagittal > xMax) sliceState.sagittal = Math.floor(xMax / 2);
+      axial.value = String(sliceState.axial);
+      coronal.value = String(sliceState.coronal);
+      sagittal.value = String(sliceState.sagittal);
+    }
+
+    function refreshStrokeStatus() {
+      const label = document.getElementById('stroke-status');
+      if (!label) return;
+      label.textContent = strokeMode ? `Stroke mode: ${strokeMode.toUpperCase()}` : 'Stroke mode: OFF';
+      const paintBtn = document.getElementById('btn-stroke-paint');
+      const eraseBtn = document.getElementById('btn-stroke-erase');
+      if (paintBtn) paintBtn.disabled = requestInFlight > 0;
+      if (eraseBtn) eraseBtn.disabled = requestInFlight > 0;
+      if (paintBtn) paintBtn.style.outline = strokeMode === 'paint' ? '2px solid #6ec7ff' : 'none';
+      if (eraseBtn) eraseBtn.style.outline = strokeMode === 'erase' ? '2px solid #ff6b6b' : 'none';
+    }
+
+    function setStrokeMode(mode) {
+      if (strokeSession) return;
+      strokeMode = strokeMode === mode ? null : mode;
+      refreshStrokeStatus();
+    }
+
+    function getCenterFromCanvasEvent(plane, ev) {
+      const canvas = ev.target;
+      const rect = canvas.getBoundingClientRect();
+      const px = Math.max(0, Math.min(rect.width - 1, ev.clientX - rect.left));
+      const py = Math.max(0, Math.min(rect.height - 1, ev.clientY - rect.top));
+      const xIdx = Math.round((px / Math.max(1, rect.width - 1)) * Math.max(0, canvas.width - 1));
+      const yIdx = Math.round((py / Math.max(1, rect.height - 1)) * Math.max(0, canvas.height - 1));
+
+      let z = Number(document.getElementById('c-z').value || 0);
+      let y = Number(document.getElementById('c-y').value || 0);
+      let x = Number(document.getElementById('c-x').value || 0);
+
+      if (plane === 'axial') {
+        z = sliceState.axial;
+        y = yIdx;
+        x = xIdx;
+      }
+      if (plane === 'coronal') {
+        z = yIdx;
+        y = sliceState.coronal;
+        x = xIdx;
+      }
+      if (plane === 'sagittal') {
+        z = yIdx;
+        y = xIdx;
+        x = sliceState.sagittal;
+      }
+
+      return [z, y, x];
+    }
+
+    function updateCenterInputs(center) {
+      document.getElementById('c-z').value = String(center[0]);
+      document.getElementById('c-y').value = String(center[1]);
+      document.getElementById('c-x').value = String(center[2]);
+    }
+
+    function appendInterpolatedStrokeOps(ops, fromCenter, toCenter, opType, radius) {
+      if (!Array.isArray(fromCenter) || !Array.isArray(toCenter)) return;
+      const dz = toCenter[0] - fromCenter[0];
+      const dy = toCenter[1] - fromCenter[1];
+      const dx = toCenter[2] - fromCenter[2];
+      const steps = Math.max(1, Math.max(Math.abs(dz), Math.abs(dy), Math.abs(dx)));
+      const start = ops.length ? 1 : 0;
+      for (let i = start; i <= steps; i++) {
+        const t = steps === 0 ? 1 : (i / steps);
+        ops.push({
+          type: opType,
+          center: [
+            Math.round(fromCenter[0] + dz * t),
+            Math.round(fromCenter[1] + dy * t),
+            Math.round(fromCenter[2] + dx * t),
+          ],
+          radius,
+        });
+      }
+    }
+
+    async function commitStrokeOps(ops, parentVersionId, expectedCurrentVersionId) {
+      const payload = {
+        parent_version_id: parentVersionId,
+        expected_current_version_id: expectedCurrentVersionId,
+        operations: ops,
+      };
+      const data = await apiPost(`/api/mask/version/${encodeURIComponent(subjectId)}`, payload);
+      log(`Stroke saved ${data.version.version_id}: ${data.version.operation_summary}`, 'ok');
+      await loadCatalog(false);
+      await activateVersion(data.version.version_id, { recordHistory: true });
+      pendingStrokeRetryOps = null;
+    }
+
+    async function commitStrokeSession() {
+      if (!strokeSession || !strokeSession.ops.length || !activeVersionId) {
+        strokeSession = null;
+        refreshStrokeStatus();
+        return;
+      }
+      const ops = strokeSession.ops;
+      strokeSession = null;
+      refreshStrokeStatus();
+
+      try {
+        await commitStrokeOps(ops, activeVersionId, activeVersionId);
+      } catch (err) {
+        if (err.status === 409 && err.payload && err.payload.latest_version_id) {
+          const latest = err.payload.latest_version_id;
+          pendingStrokeRetryOps = ops;
+          log(`Stroke conflict: latest version is ${latest}. Refreshing...`, 'err');
+          await loadCatalog(false);
+          await activateVersion(latest, { recordHistory: true });
+          const retry = window.confirm('A newer mask version exists. Replay this stroke on the latest version?');
+          if (retry && pendingStrokeRetryOps) {
+            const replayOps = pendingStrokeRetryOps;
+            await commitStrokeOps(replayOps, latest, latest);
+          }
+          return;
+        }
+        throw err;
+      }
+    }
+
+    function drawCompositeSlice(canvasId, width, height, maskData, anatomyData) {
+      const canvas = document.getElementById(canvasId);
+      const ctx = canvas.getContext('2d');
+      canvas.width = width;
+      canvas.height = height;
+
+      const img = ctx.createImageData(width, height);
+      for (let i = 0; i < maskData.length; i++) {
+        const on = Number(maskData[i]) > 0;
+        const under = anatomyData && i < anatomyData.length ? Number(anatomyData[i]) : 18;
+        const base = Math.max(0, Math.min(255, under));
+        const p = i * 4;
+        if (on) {
+          const alpha = Math.max(0, Math.min(1, anatomyOpacity));
+          img.data[p] = Math.round((135 * alpha) + (base * (1 - alpha)));
+          img.data[p + 1] = Math.round((220 * alpha) + (base * (1 - alpha)));
+          img.data[p + 2] = Math.round((255 * alpha) + (base * (1 - alpha)));
+        } else {
+          img.data[p] = base;
+          img.data[p + 1] = base;
+          img.data[p + 2] = base;
+        }
+        img.data[p + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    function applySlicePayload(plane, data, anatomy) {
+      if (!data) return;
+      if (plane === 'axial') {
+        sliceState.axial = Number(data.index || 0);
+        document.getElementById('axial-index').value = String(sliceState.axial);
+      }
+      if (plane === 'coronal') {
+        sliceState.coronal = Number(data.index || 0);
+        document.getElementById('coronal-index').value = String(sliceState.coronal);
+      }
+      if (plane === 'sagittal') {
+        sliceState.sagittal = Number(data.index || 0);
+        document.getElementById('sagittal-index').value = String(sliceState.sagittal);
+      }
+      const anatomyData = anatomy && Array.isArray(anatomy.data) ? anatomy.data : [];
+      drawCompositeSlice(`${plane}-canvas`, Number(data.width), Number(data.height), data.data || [], anatomyData);
+    }
+
+    async function refreshOrthoview() {
+      if (!activeVersionId) return;
+      const url = `/api/mask/orthoview/${encodeURIComponent(subjectId)}/${encodeURIComponent(activeVersionId)}`
+        + `?axial=${sliceState.axial}&coronal=${sliceState.coronal}&sagittal=${sliceState.sagittal}`;
+      const anatomyUrl = `/api/mask/anatomy/${encodeURIComponent(subjectId)}`
+        + `?axial=${sliceState.axial}&coronal=${sliceState.coronal}&sagittal=${sliceState.sagittal}`;
+      const [data, anatomy] = await Promise.all([apiGet(url), apiGet(anatomyUrl)]);
+      applySlicePayload('axial', data.axial, anatomy.axial);
+      applySlicePayload('coronal', data.coronal, anatomy.coronal);
+      applySlicePayload('sagittal', data.sagittal, anatomy.sagittal);
+    }
+
+    function scheduleOrthoviewRefresh() {
+      if (orthoviewRefreshTimer) {
+        clearTimeout(orthoviewRefreshTimer);
+      }
+      orthoviewRefreshTimer = setTimeout(async () => {
+        orthoviewRefreshTimer = null;
+        try {
+          await refreshOrthoview();
+        } catch (err) {
+          log(String(err), 'err');
+        }
+      }, 50);
+    }
+
+    async function refreshAllSlices() {
+      await refreshOrthoview();
+    }
+
+    async function activateVersion(versionId, opts = {}) {
+      if (!versionId) return;
+      const recordHistory = opts.recordHistory !== false;
+      const data = await apiGet(`/api/mask/version/${encodeURIComponent(subjectId)}/${encodeURIComponent(versionId)}`);
+      activeVersionId = versionId;
+      activeShape = Array.isArray(data.shape) ? data.shape : [0, 0, 0];
+      document.getElementById('active-version').textContent = activeVersionId;
+      document.getElementById('voxel-count').textContent = Number(data.voxel_count || 0).toLocaleString();
+      document.getElementById('c-z').value = String(Math.floor((activeShape[0] || 1) / 2));
+      document.getElementById('c-y').value = String(Math.floor((activeShape[1] || 1) / 2));
+      document.getElementById('c-x').value = String(Math.floor((activeShape[2] || 1) / 2));
+      updateSliceSliders();
+      renderVersions();
+      await refreshAllSlices();
+      if (recordHistory) {
+        recordVersionHistory(versionId);
+      }
+    }
+
+    async function initFromAuto() {
+      const payload = {
+        preset: seedPreset,
+        params: {
+          mask_mode: seedMode,
+          selected_labels: seedLabels,
+          selected_groups: seedGroups,
+          include_labels: seedLabels,
+        },
+      };
+      const data = await apiPost(`/api/mask/init/${encodeURIComponent(subjectId)}`, payload);
+      log(`Initialized version ${data.version.version_id} from automatic selection`, 'ok');
+      await loadCatalog(true);
+      await activateVersion(data.version.version_id);
+    }
+
+    async function initEmptyMask() {
+      const payload = {
+        source_type: 'empty',
+      };
+      const data = await apiPost(`/api/mask/init/${encodeURIComponent(subjectId)}`, payload);
+      log(`Initialized empty version ${data.version.version_id}`, 'ok');
+      await loadCatalog(true);
+      await activateVersion(data.version.version_id);
+    }
+
+    async function applyOperation(opType) {
+      if (!activeVersionId) {
+        log('Select or initialize a mask version first', 'err');
+        return;
+      }
+      const operation = { type: opType };
+      if (opType === 'grow' || opType === 'shrink') {
+        operation.iterations = Math.max(1, Number(document.getElementById('op-iters').value || 1));
+      }
+      if (opType === 'paint' || opType === 'erase') {
+        operation.center = [
+          Math.max(0, Number(document.getElementById('c-z').value || 0)),
+          Math.max(0, Number(document.getElementById('c-y').value || 0)),
+          Math.max(0, Number(document.getElementById('c-x').value || 0)),
+        ];
+        operation.radius = Math.max(1, Number(document.getElementById('c-r').value || 2));
+      }
+
+      try {
+        const data = await apiPost(`/api/mask/version/${encodeURIComponent(subjectId)}`, {
+          parent_version_id: activeVersionId,
+          expected_current_version_id: activeVersionId,
+          operation,
+        });
+        log(`Saved ${data.version.version_id}: ${data.version.operation_summary}`, 'ok');
+        await loadCatalog(false);
+        await activateVersion(data.version.version_id, { recordHistory: true });
+      } catch (err) {
+        if (err.status === 409 && err.payload && err.payload.latest_version_id) {
+          log(`Conflict: latest version is ${err.payload.latest_version_id}. Refreshing...`, 'err');
+          await loadCatalog(false);
+          await activateVersion(err.payload.latest_version_id, { recordHistory: true });
+          return;
+        }
+        throw err;
+      }
+    }
+
+    async function exportActiveToStl() {
+      if (!activeVersionId) {
+        log('No active version to export', 'err');
+        return;
+      }
+      const data = await apiPost(`/api/stl/from-mask/${encodeURIComponent(subjectId)}/${encodeURIComponent(activeVersionId)}`, {
+        preset: 'standard',
+      });
+      log(`STL queued: ${data.job_id}`, 'ok');
+    }
+
+    async function deleteCurrentVersion() {
+      if (!activeVersionId) {
+        log('No active version selected for deletion', 'err');
+        return;
+      }
+      const current = activeVersionId;
+      const force = window.confirm('Force delete this version if it is latest or has children? Click Cancel for safe delete attempt.');
+      const qs = force ? '?force=true' : '';
+      const data = await apiDelete(`/api/mask/version/${encodeURIComponent(subjectId)}/${encodeURIComponent(current)}${qs}`);
+      log(`${data.message}: ${current}`, 'ok');
+      for (let i = versionHistory.length - 1; i >= 0; i--) {
+        if (versionHistory[i] === current) {
+          versionHistory.splice(i, 1);
+          if (versionHistoryIndex >= i) {
+            versionHistoryIndex = Math.max(0, versionHistoryIndex - 1);
+          }
+        }
+      }
+      await loadCatalog(true);
+      updateUndoRedoState();
+    }
+
+    async function undoVersion() {
+      if (versionHistoryIndex <= 0) return;
+      versionHistoryIndex -= 1;
+      const versionId = versionHistory[versionHistoryIndex];
+      await activateVersion(versionId, { recordHistory: false });
+      log(`Undo -> ${versionId}`, 'ok');
+      updateUndoRedoState();
+    }
+
+    async function redoVersion() {
+      if (versionHistoryIndex < 0 || versionHistoryIndex >= versionHistory.length - 1) return;
+      versionHistoryIndex += 1;
+      const versionId = versionHistory[versionHistoryIndex];
+      await activateVersion(versionId, { recordHistory: false });
+      log(`Redo -> ${versionId}`, 'ok');
+      updateUndoRedoState();
+    }
+
+    function wireSliceControls() {
+      const opacity = document.getElementById('anatomy-opacity');
+      opacity.addEventListener('input', () => {
+        anatomyOpacity = Number(opacity.value || 0.55);
+        scheduleOrthoviewRefresh();
+      });
+
+      ['axial', 'coronal', 'sagittal'].forEach(plane => {
+        const input = document.getElementById(`${plane}-index`);
+        input.addEventListener('input', () => {
+          sliceState[plane] = Math.max(0, Number(input.value || 0));
+          scheduleOrthoviewRefresh();
+        });
+      });
+
+      const bindCanvas = (plane) => {
+        const canvas = document.getElementById(`${plane}-canvas`);
+        canvas.addEventListener('click', ev => {
+          const center = getCenterFromCanvasEvent(plane, ev);
+          updateCenterInputs(center);
+        });
+
+        canvas.addEventListener('pointerdown', (ev) => {
+          if (!strokeMode || requestInFlight > 0 || !activeVersionId) return;
+          ev.preventDefault();
+          canvas.setPointerCapture(ev.pointerId);
+          const center = getCenterFromCanvasEvent(plane, ev);
+          updateCenterInputs(center);
+          const radius = Math.max(1, Number(document.getElementById('c-r').value || 2));
+          strokeSession = {
+            plane,
+            radius,
+            opType: strokeMode,
+            lastCenter: center,
+            ops: [],
+          };
+          appendInterpolatedStrokeOps(strokeSession.ops, center, center, strokeMode, radius);
+        });
+
+        canvas.addEventListener('pointermove', (ev) => {
+          if (!strokeSession || strokeSession.plane !== plane) return;
+          const center = getCenterFromCanvasEvent(plane, ev);
+          updateCenterInputs(center);
+          appendInterpolatedStrokeOps(
+            strokeSession.ops,
+            strokeSession.lastCenter,
+            center,
+            strokeSession.opType,
+            strokeSession.radius,
+          );
+          strokeSession.lastCenter = center;
+        });
+
+        const endStroke = async (ev) => {
+          if (!strokeSession || strokeSession.plane !== plane) return;
+          try {
+            canvas.releasePointerCapture(ev.pointerId);
+          } catch (_) {
+            // no-op
+          }
+          try {
+            await commitStrokeSession();
+          } catch (err) {
+            log(String(err), 'err');
+          }
+        };
+
+        canvas.addEventListener('pointerup', endStroke);
+        canvas.addEventListener('pointercancel', endStroke);
+      };
+
+      bindCanvas('axial');
+      bindCanvas('coronal');
+      bindCanvas('sagittal');
+    }
+
+    function wireActions() {
+      document.getElementById('btn-back').addEventListener('click', () => {
+        if (window.history.length > 1 && document.referrer && new URL(document.referrer).origin === window.location.origin) {
+          window.history.back();
+          return;
+        }
+        window.location.assign('/');
+      });
+      document.getElementById('btn-init').addEventListener('click', async () => {
+        try { await initFromAuto(); } catch (err) { log(String(err), 'err'); }
+      });
+      document.getElementById('btn-init-empty').addEventListener('click', async () => {
+        try { await initEmptyMask(); } catch (err) { log(String(err), 'err'); }
+      });
+      document.getElementById('btn-refresh').addEventListener('click', async () => {
+        try {
+          await loadCatalog(false);
+          if (activeVersionId) await activateVersion(activeVersionId);
+        } catch (err) {
+          log(String(err), 'err');
+        }
+      });
+      document.getElementById('btn-export').addEventListener('click', async () => {
+        try { await exportActiveToStl(); } catch (err) { log(String(err), 'err'); }
+      });
+      document.getElementById('btn-delete').addEventListener('click', async () => {
+        try { await deleteCurrentVersion(); } catch (err) { log(String(err), 'err'); }
+      });
+      document.getElementById('btn-undo').addEventListener('click', async () => {
+        try { await undoVersion(); } catch (err) { log(String(err), 'err'); }
+      });
+      document.getElementById('btn-redo').addEventListener('click', async () => {
+        try { await redoVersion(); } catch (err) { log(String(err), 'err'); }
+      });
+      document.getElementById('btn-stroke-paint').addEventListener('click', () => {
+        setStrokeMode('paint');
+      });
+      document.getElementById('btn-stroke-erase').addEventListener('click', () => {
+        setStrokeMode('erase');
+      });
+
+      document.querySelectorAll('button[data-op]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const opType = btn.getAttribute('data-op');
+          try { await applyOperation(opType); } catch (err) { log(String(err), 'err'); }
+        });
+      });
+
+      window.addEventListener('beforeunload', (event) => {
+        if (requestInFlight <= 0) return;
+        event.preventDefault();
+        event.returnValue = '';
+      });
+
+      window.addEventListener('keydown', async (event) => {
+        const key = event.key.toLowerCase();
+        if (key === 'escape') {
+          strokeMode = null;
+          refreshStrokeStatus();
+          return;
+        }
+        const isMac = navigator.platform.toUpperCase().includes('MAC');
+        const mod = isMac ? event.metaKey : event.ctrlKey;
+        if (!mod) return;
+
+        if (key === 'z' && !event.shiftKey) {
+          event.preventDefault();
+          try { await undoVersion(); } catch (err) { log(String(err), 'err'); }
+          return;
+        }
+        if (key === 'y' || (key === 'z' && event.shiftKey)) {
+          event.preventDefault();
+          try { await redoVersion(); } catch (err) { log(String(err), 'err'); }
+        }
+      });
+    }
+
+    async function boot() {
+      document.getElementById('subject-label').textContent = subjectId || '(missing)';
+      document.getElementById('seed-info').textContent = `seed preset=${seedPreset}, mode=${seedMode}, labels=${seedLabels.length}, groups=${seedGroups.length}`;
+      if (!subjectId) {
+        log('Missing subject query parameter. Open this page from the main STL panel.', 'err');
+        return;
+      }
+      wireSliceControls();
+      wireActions();
+      setActionButtonsDisabled(false);
+      updateUndoRedoState();
+      refreshStrokeStatus();
+      try {
+        await loadCatalog(true);
+        if (versions.length && !activeVersionId) {
+          await activateVersion(versions[0].version_id, { recordHistory: true });
+        }
+      } catch (err) {
+        log(String(err), 'err');
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>

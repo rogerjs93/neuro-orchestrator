@@ -1,0 +1,27 @@
+# Web server
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+
+# TUI (alternative interface)
+textual>=0.70.0
+rich>=13.7.0
+
+# Neuroimaging Python stack
+nilearn>=0.10.3
+dipy>=1.9.0
+nibabel>=5.2.0
+nipype>=1.8.6
+numpy>=1.26.0
+pandas>=2.2.0
+scipy>=1.13.0
+scikit-image>=0.24.0
+trimesh>=4.4.0
+
+# Graph / network analysis
+networkx>=3.3
+bctpy>=0.5.2
+
+# Utilities
+pyyaml>=6.0.1
+tqdm>=4.66.0

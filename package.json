@@ -1,0 +1,16 @@
+{
+  "name": "neuro-orchestrator-ui-tooling",
+  "private": true,
+  "version": "0.1.0",
+  "description": "UI workflow tooling for neuro-orchestrator static pages",
+  "engines": {
+    "node": ">=20 <21",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "ui:skill:install": "impeccable skills install"
+  },
+  "devDependencies": {
+    "impeccable": "2.3.2"
+  }
+}

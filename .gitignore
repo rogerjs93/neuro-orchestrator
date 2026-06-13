@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+nilearn_cache/
+
+# Node
+node_modules/
+
+# Data, outputs, licenses (large or sensitive — keep out of VCS)
+data/
+outputs/
+licenses/
+
+# Environments
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db

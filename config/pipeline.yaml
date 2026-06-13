@@ -1,0 +1,77 @@
+pipeline:
+  # Number of subjects to process in parallel
+  parallel_subjects: 2
+
+  # MNI output space for fMRIPrep
+  output_spaces: "MNI152NLin2009cAsym:res-2"
+
+  # Skip BIDS validation (useful when data is partially formed)
+  skip_bids_validation: true
+
+  # Resources passed to tool containers
+  n_cpus: 4
+  mem_gb: 16
+
+stages:
+  mriqc:
+    description: "Image quality metrics (structural + functional)"
+    docker_image: nipreps/mriqc:latest
+    requires: [anat]
+    enabled: true
+
+  fastsurfer:
+    description: "Deep learning whole-brain segmentation (~1 min with GPU)"
+    docker_image: deepmi/fastsurfer:latest
+    requires: [anat]
+    enabled: true
+    gpu: false          # set true if NVIDIA GPU available
+
+  fmriprep:
+    description: "fMRI preprocessing (motion, confounds, registration)"
+    docker_image: nipreps/fmriprep:latest
+    requires: [anat, func]
+    enabled: true
+
+  mrtrix3:
+    description: "Diffusion tractography + structural connectome"
+    docker_image: mrtrix3/mrtrix3:latest
+    requires: [dwi]
+    enabled: true
+
+  connectivity:
+    description: "Functional connectivity matrices (Nilearn)"
+    python_module: pipeline.tasks.connectivity
+    requires: [func]
+    enabled: true
+    atlas: "schaefer_2018"
+    n_parcels: 200
+
+  network:
+    description: "Graph metrics + hub detection (BCT + NetworkX)"
+    python_module: pipeline.tasks.network
+    requires: []
+    enabled: true
+    metrics: [clustering, efficiency, betweenness, modularity]
+
+stl:
+  enabled: true
+  output_dir: outputs/stl
+  default_preset: standard
+  presets:
+    standard:
+      smoothing_iterations: 8
+      smoothing_lambda: 0.45
+      min_component_voxels: 1000
+      open_iterations: 0
+      close_iterations: 1
+      decimation_ratio: 0.65
+    high_quality:
+      smoothing_iterations: 14
+      smoothing_lambda: 0.35
+      min_component_voxels: 500
+      decimation_ratio: 0.9
+    fast_preview:
+      smoothing_iterations: 4
+      smoothing_lambda: 0.55
+      min_component_voxels: 2500
+      decimation_ratio: 0.2
