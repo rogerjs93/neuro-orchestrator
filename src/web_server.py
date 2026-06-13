@@ -87,6 +87,18 @@ stl_jobs: Dict[str, STLJob] = {}
 stl_intents: Dict[str, STLIntent] = {}
 stl_queue: asyncio.Queue[str] = asyncio.Queue()
 stl_worker_task: Optional[asyncio.Task[Any]] = None
+
+# Per-stage review gate policy, set at runtime from the run-setup screen.
+#   mode:    auto  -> run headlessly, no pause
+#            gated -> build the baseline, then pause for operator review (per trigger)
+#            off   -> skip the stage entirely
+#   trigger: always  -> always pause in gated mode
+#            on_flag -> pause only when the baseline looks implausible
+gate_config: Dict[str, Dict[str, str]] = {
+    "mask": {"mode": "gated", "trigger": "always"},
+}
+# Append-only audit trail of gate decisions (doubles as provenance).
+gate_audit: List[Dict[str, Any]] = []
 MASK_CACHE_MAX_ITEMS = 8
 _mask_volume_cache: "OrderedDict[str, tuple[np.ndarray, nib.spatialimages.SpatialImage, Dict[str, Any]]]" = OrderedDict()
 ANATOMY_CACHE_MAX_ITEMS = 4
@@ -104,6 +116,8 @@ def _build_checkpoint_payload() -> Dict[str, Any]:
         "state": pipeline_state.to_dict(),
         "logs": log_buffer[-MAX_LOG_BUFFER:],
         "stl_intents": [asdict(i) for i in stl_intents.values()],
+        "gate_config": gate_config,
+        "gate_audit": gate_audit[-MAX_LOG_BUFFER:],
     }
 
 
@@ -151,13 +165,24 @@ def _append_interruption_logs(interrupted: List[tuple[str, str]]) -> None:
 
 
 def _restore_checkpoint() -> Dict[str, int]:
-    global pipeline_state, log_buffer, stl_intents
+    global pipeline_state, log_buffer, stl_intents, gate_config, gate_audit
     restored_subjects = 0
     restored_logs = 0
     interrupted_count = 0
 
     checkpoint = load_checkpoint(OUTPUT_DIR)
     if checkpoint:
+        raw_gate_config = checkpoint.get("gate_config")
+        if isinstance(raw_gate_config, dict):
+            for stage, cfg in raw_gate_config.items():
+                if isinstance(cfg, dict) and stage in STAGE_ORDER:
+                    gate_config[stage] = {
+                        "mode": str(cfg.get("mode", "auto")),
+                        "trigger": str(cfg.get("trigger", "always")),
+                    }
+        raw_gate_audit = checkpoint.get("gate_audit")
+        if isinstance(raw_gate_audit, list):
+            gate_audit = [e for e in raw_gate_audit if isinstance(e, dict)][-MAX_LOG_BUFFER:]
         state_data = checkpoint.get("state", {})
         if isinstance(state_data, dict):
             pipeline_state = PipelineState.from_dict(state_data)
@@ -965,6 +990,13 @@ def _snapshot() -> Dict[str, Any]:
     jobs = [asdict(j) for j in sorted(stl_jobs.values(), key=lambda x: x.created_at, reverse=True)]
     intents = [asdict(i) for i in sorted(stl_intents.values(), key=lambda x: x.created_at, reverse=True)]
 
+    pending_gates = [
+        {"subject_id": sid, "stage": stage}
+        for sid, sub in pipeline_state.subjects.items()
+        for stage in STAGE_ORDER
+        if sub.stage_status.get(stage) == StageStatus.AWAITING_REVIEW
+    ]
+
     return {
         "type": "state_snapshot",
         "subjects": subjects,
@@ -974,6 +1006,11 @@ def _snapshot() -> Dict[str, Any]:
             "jobs": jobs,
             "intents": intents,
             "queue": queue_order,
+        },
+        "gates": {
+            "config": gate_config,
+            "pending": pending_gates,
+            "audit": gate_audit[-25:],
         },
     }
 
@@ -1222,6 +1259,93 @@ async def run_subject_stage(subject_id: str, stage: str) -> JSONResponse:
 
     asyncio.create_task(_run(subject_id, stages=[stage]))
     return JSONResponse({"message": f"Started stage '{stage}' for {subject_id}"})
+
+
+@app.get("/api/gate-config")
+async def get_gate_config() -> JSONResponse:
+    return JSONResponse({"gate_config": gate_config})
+
+
+@app.post("/api/gate-config")
+async def set_gate_config(payload: Dict[str, Any] = Body(default={})) -> JSONResponse:
+    stage = str(payload.get("stage", "")).strip()
+    if stage not in STAGE_ORDER:
+        return JSONResponse({"error": f"Unknown stage '{stage}'"}, status_code=400)
+    current = gate_config.get(stage, {"mode": "auto", "trigger": "always"})
+    mode = str(payload.get("mode", current.get("mode", "auto"))).strip().lower()
+    trigger = str(payload.get("trigger", current.get("trigger", "always"))).strip().lower()
+    if mode not in {"auto", "gated", "off"}:
+        return JSONResponse({"error": "mode must be one of: auto, gated, off"}, status_code=400)
+    if trigger not in {"always", "on_flag"}:
+        return JSONResponse({"error": "trigger must be one of: always, on_flag"}, status_code=400)
+    gate_config[stage] = {"mode": mode, "trigger": trigger}
+    _save_checkpoint_now()
+    await broadcast(_snapshot())
+    return JSONResponse({"gate_config": gate_config})
+
+
+@app.post("/api/gate/{subject_id}/{stage}")
+async def decide_gate(subject_id: str, stage: str, payload: Dict[str, Any] = Body(default={})) -> JSONResponse:
+    _reload_subjects()
+    sub = pipeline_state.subjects.get(subject_id)
+    if not sub:
+        return JSONResponse({"error": "Subject not found"}, status_code=404)
+    if stage not in STAGE_ORDER:
+        return JSONResponse({"error": f"Unknown stage '{stage}'"}, status_code=400)
+    if stage != "mask":
+        return JSONResponse({"error": f"Stage '{stage}' has no review gate"}, status_code=400)
+    if sub.stage_status.get(stage) != StageStatus.AWAITING_REVIEW:
+        return JSONResponse({"error": f"{subject_id}/{stage} is not awaiting review"}, status_code=409)
+
+    decision = str(payload.get("decision", "")).strip().lower()
+    note = str(payload.get("note", "")).strip()
+    operator = str(payload.get("operator", "")).strip() or "operator"
+    version_id = str(payload.get("version_id", "")).strip()
+
+    if decision == "approve":
+        if not version_id:
+            versions = _list_mask_versions(subject_id)
+            if not versions:
+                return JSONResponse({"error": "No mask version available to approve"}, status_code=409)
+            version_id = str(versions[0].get("version_id", "")).strip()
+        job = _enqueue_stl_from_version(subject_id, version_id)
+        pipeline_state.set_completed(subject_id, stage)
+        _record_gate_decision(subject_id, stage, "approve", version_id=version_id,
+                              note=note, operator=operator, stl_job_id=(job.id if job else None))
+        _save_checkpoint_now()
+        await broadcast({"type": "log", "subject_id": subject_id, "stage": stage,
+                         "message": f"gate approved (version={version_id}); STL queued, resuming pipeline",
+                         "level": "stage"})
+        await broadcast(_snapshot())
+        asyncio.create_task(_run(subject_id))
+        return JSONResponse({"message": "approved", "version_id": version_id,
+                             "stl_job_id": (job.id if job else None)})
+
+    if decision == "redo":
+        try:
+            saved = _build_mask_baseline(subject_id)
+        except Exception as exc:
+            return JSONResponse({"error": f"redo failed: {exc}"}, status_code=400)
+        _record_gate_decision(subject_id, stage, "redo", version_id=saved["version_id"],
+                              note=note, operator=operator)
+        _save_checkpoint_now()
+        await broadcast({"type": "log", "subject_id": subject_id, "stage": stage,
+                         "message": f"gate redo — new baseline {saved['version_id']}", "level": "info"})
+        await broadcast(_snapshot())
+        return JSONResponse({"message": "redone", "version": saved})
+
+    if decision == "skip":
+        sub.stage_status[stage] = StageStatus.SKIPPED
+        _record_gate_decision(subject_id, stage, "skip", version_id=(version_id or None),
+                              note=note, operator=operator)
+        _save_checkpoint_now()
+        await broadcast({"type": "log", "subject_id": subject_id, "stage": stage,
+                         "message": "gate skipped; resuming pipeline", "level": "info"})
+        await broadcast(_snapshot())
+        asyncio.create_task(_run(subject_id))
+        return JSONResponse({"message": "skipped"})
+
+    return JSONResponse({"error": "decision must be one of: approve, redo, skip"}, status_code=400)
 
 
 @app.post("/api/reset")
@@ -1786,9 +1910,141 @@ async def get_artifact(artifact_path: str) -> FileResponse:
 
 
 # -- Pipeline execution --------------------------------------------------------
+def _gate_for(stage: str) -> Dict[str, str]:
+    cfg = gate_config.get(stage) or {}
+    return {
+        "mode": str(cfg.get("mode", "auto")),
+        "trigger": str(cfg.get("trigger", "always")),
+    }
+
+
+def _mask_baseline_is_flagged(saved: Dict[str, Any]) -> bool:
+    # Minimal on_flag heuristic: an empty/implausible baseline needs human review.
+    # Extend later with connected-component count, volume bounds, or QC metrics.
+    return int(saved.get("voxel_count", 0)) <= 0
+
+
+def _record_gate_decision(
+    subject_id: str,
+    stage: str,
+    decision: str,
+    *,
+    version_id: Optional[str] = None,
+    note: str = "",
+    operator: str = "operator",
+    stl_job_id: Optional[str] = None,
+) -> None:
+    gate_audit.append({
+        "subject_id": subject_id,
+        "stage": stage,
+        "decision": decision,
+        "version_id": version_id or None,
+        "note": note or None,
+        "operator": operator or "operator",
+        "stl_job_id": stl_job_id,
+        "timestamp": _utc_now(),
+    })
+    if len(gate_audit) > MAX_LOG_BUFFER:
+        del gate_audit[:-MAX_LOG_BUFFER]
+
+
+def _build_mask_baseline(subject_id: str) -> Dict[str, Any]:
+    """Build + persist the automatic baseline mask version (no STL). Returns the saved version dict."""
+    mask, ref_img, info = _build_auto_mask(subject_id, "standard", {"mask_mode": "whole"})
+    saved = _save_mask_version(
+        subject_id=subject_id,
+        mask=mask,
+        reference_img=ref_img,
+        parent_version_id=None,
+        source_type="auto",
+        operation_summary="pipeline_auto_mask:whole",
+        extra_meta=info,
+    )
+    _mask_cache_invalidate(subject_id)
+    return saved
+
+
+def _enqueue_stl_from_version(subject_id: str, version_id: str, preset: str = "standard") -> Optional[STLJob]:
+    nifti = _mask_version_nifti_path(subject_id, version_id)
+    if not nifti.exists():
+        return None
+    params = {
+        "manual_mask_path": str(nifti),
+        "manual_mask_version_id": version_id,
+        "mask_mode": "manual",
+    }
+    try:
+        return _queue_stl_job(subject_id, {"preset": preset, "params": params}, skip_prereq=True)
+    except HTTPException:
+        return None
+
+
+async def _run_mask_stage(subject_id: str) -> str:
+    """Run the masking stage with gate handling. Returns completed|paused|skipped|failed."""
+    gate = _gate_for("mask")
+    mode = gate["mode"]
+    sub = pipeline_state.subjects.get(subject_id)
+    if sub is None:
+        return "failed"
+
+    if mode == "off":
+        sub.stage_status["mask"] = StageStatus.SKIPPED
+        _save_checkpoint_now()
+        await broadcast({"type": "log", "subject_id": subject_id, "stage": "mask",
+                         "message": "-- MASK skipped (gate mode: off) --", "level": "info"})
+        await broadcast(_snapshot())
+        return "skipped"
+
+    pipeline_state.set_running(subject_id, "mask")
+    _save_checkpoint_now()
+    await broadcast(_snapshot())
+    await broadcast({"type": "log", "subject_id": subject_id, "stage": "mask",
+                     "message": "-- MASK --", "level": "stage"})
+
+    try:
+        saved = _build_mask_baseline(subject_id)
+    except Exception as exc:
+        pipeline_state.set_failed(subject_id, "mask")
+        _save_checkpoint_now()
+        await broadcast({"type": "log", "subject_id": subject_id, "stage": "mask",
+                         "message": f"baseline mask failed: {exc}", "level": "error"})
+        await broadcast(_snapshot())
+        return "failed"
+
+    await broadcast({"type": "log", "subject_id": subject_id, "stage": "mask",
+                     "message": f"baseline mask version {saved['version_id']} ({saved.get('voxel_count', 0)} voxels)",
+                     "level": "info"})
+
+    needs_review = mode == "gated" and (
+        gate["trigger"] == "always"
+        or (gate["trigger"] == "on_flag" and _mask_baseline_is_flagged(saved))
+    )
+    if needs_review:
+        sub.stage_status["mask"] = StageStatus.AWAITING_REVIEW
+        _save_checkpoint_now()
+        await broadcast({"type": "log", "subject_id": subject_id, "stage": "mask",
+                         "message": "awaiting review — open the mask editor to approve, redo, or skip",
+                         "level": "stage"})
+        await broadcast(_snapshot())
+        return "paused"
+
+    # auto (or on_flag that passed): export STL from the baseline and complete.
+    job = _enqueue_stl_from_version(subject_id, saved["version_id"])
+    _record_gate_decision(subject_id, "mask", "auto_approved",
+                          version_id=saved["version_id"], note="auto",
+                          stl_job_id=(job.id if job else None))
+    pipeline_state.set_completed(subject_id, "mask")
+    _save_checkpoint_now()
+    await broadcast(_snapshot())
+    return "completed"
+
+
 async def _run(subject_id: str, stages: Optional[List[str]] = None) -> None:
     sub = pipeline_state.subjects.get(subject_id)
     if not sub or sub.overall_status.value == "running":
+        return
+    # Don't advance a subject that is paused at a review gate — resolve it first.
+    if any(st == StageStatus.AWAITING_REVIEW for st in sub.stage_status.values()):
         return
 
     stage_plan = runner.pending_stages(sub) if stages is None else [s for s in stages if s in STAGE_ORDER]
@@ -1808,6 +2064,14 @@ async def _run(subject_id: str, stages: Optional[List[str]] = None) -> None:
                 "type": "log", "subject_id": subject_id, "stage": stage,
                 "message": f"-- {stage.upper()} already completed; skipping --", "level": "info",
             })
+            continue
+
+        # Masking is handled in-process so it can pause at a review gate and let
+        # the manual editor refine the baseline before STL export / downstream.
+        if stage == "mask":
+            outcome = await _run_mask_stage(subject_id)
+            if outcome in ("paused", "failed"):
+                break
             continue
 
         pipeline_state.set_running(subject_id, stage)
