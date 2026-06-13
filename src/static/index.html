@@ -5,30 +5,51 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>neuro-orchestrator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@300;400;500&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <style>
   /* ── Variables ─────────────────────────────────────────────────── */
   :root {
-    --bg:           #06090f;
-    --surface:      #0d1521;
-    --card:         #111e30;
-    --card-hi:      #182846;
-    --border:       #2c4266;
-    --border-dim:   #1a2e46;
-    --text:         #ccdcee;
-    --text-dim:     #7a9ab8;
-    --text-bright:  #edf4ff;
-    --teal:         #00f5c0;
-    --teal-bg:      #003d2e;
-    --yellow:       #ffd95e;
-    --yellow-bg:    #2e2000;
-    --red:          #ff4f4f;
-    --red-bg:       #38090a;
-    --blue:         #5eb8ff;
-    --blue-bg:      #0b1e3f;
-    --font-ui:      'Space Mono', monospace;
+    /* Design language: "refined scientific instrument" (see DESIGN.md).
+       Slate base + single instrument-teal accent, IBM Plex pairing. */
+    --bg:           #0E1417;
+    --surface:      #161D21;
+    --card:         #1E272C;
+    --card-hi:      #243038;
+    --border:       #2A353B;
+    --border-dim:   #1F2A30;
+    --text:         #E8EEF0;
+    --text-dim:     #9DAAB0;
+    --text-bright:  #F3F8F9;
+    --teal:         #2BB6A0;
+    --teal-bg:      #0C2723;
+    --yellow:       #C98A1A;
+    --yellow-bg:    #2A2008;
+    --red:          #C2483F;
+    --red-bg:       #2E1413;
+    --blue:         #3B82C4;
+    --blue-bg:      #122436;
+    --font-ui:      'IBM Plex Sans', system-ui, sans-serif;
     --font-log:     'IBM Plex Mono', monospace;
+    --font-mono:    'IBM Plex Mono', monospace;
   }
+
+  /* ── Review gate ───────────────────────────────────────────────── */
+  #gate-wrap { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+  .gate-card { background: var(--card); border: 1px solid var(--yellow);
+    border-radius: 10px; padding: 14px 16px; }
+  .gate-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .gate-icon { color: var(--yellow); font-size: 15px; }
+  .gate-title { font-size: 14px; font-weight: 500; color: var(--text-bright); }
+  .gate-sub { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
+  .gate-msg { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.6; }
+  .gate-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .gate-btn { font-family: var(--font-ui); font-size: 13px; padding: 8px 14px;
+    border-radius: 6px; border: 1px solid var(--border); background: transparent;
+    color: var(--text); cursor: pointer; transition: background .15s; }
+  .gate-btn:hover { background: var(--card-hi); }
+  .gate-btn.approve { background: var(--teal); border-color: var(--teal); color: #04201B; }
+  .gate-btn.redo { border-color: var(--yellow); color: var(--yellow); }
+  .gate-btn.skip { border-color: var(--red); color: var(--red); }
 
   /* ── Reset ─────────────────────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1036,12 +1057,62 @@ function handleSnapshot(snap) {
   const live = new Set(Object.keys(subjects));
   checkedSubjects = new Set([...checkedSubjects].filter(x => live.has(x)));
   document.getElementById('mock-badge').style.display = snap.mock ? '' : 'none';
+  renderGates(snap.gates || {});
   renderPipeline();
   renderResults();
   renderStlJobs();
   renderMaskSelectionList();
   ensureMaskCatalog(false);
   updateActionButtons();
+}
+
+function renderGates(gates) {
+  const pending = (gates && gates.pending) || [];
+  const pipe = document.getElementById('pipeline-wrap');
+  let wrap = document.getElementById('gate-wrap');
+  if (!wrap && pipe && pipe.parentNode) {
+    wrap = document.createElement('div');
+    wrap.id = 'gate-wrap';
+    pipe.parentNode.insertBefore(wrap, pipe);
+  }
+  if (!wrap) return;
+  if (!pending.length) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = pending.map(g => `
+    <div class="gate-card">
+      <div class="gate-head">
+        <span class="gate-icon">⏸</span>
+        <span class="gate-title">Review gate · ${g.stage.toUpperCase()}</span>
+        <span class="gate-sub">${g.subject_id}</span>
+      </div>
+      <div class="gate-msg">Paused — downstream stages are held until you decide.
+        Open the mask editor to refine the baseline, then approve.</div>
+      <div class="gate-actions">
+        <button class="gate-btn approve" onclick="decideGate('${g.subject_id}','${g.stage}','approve')">✓ Approve &amp; export</button>
+        <button class="gate-btn redo" onclick="decideGate('${g.subject_id}','${g.stage}','redo')">↻ Redo baseline</button>
+        <button class="gate-btn skip" onclick="decideGate('${g.subject_id}','${g.stage}','skip')">✕ Skip</button>
+      </div>
+    </div>`).join('');
+}
+
+async function decideGate(subject, stage, decision) {
+  const note = decision === 'approve' ? (prompt('Reviewer note (optional, saved to audit trail):') || '') : '';
+  try {
+    const r = await fetch(`/api/gate/${subject}/${stage}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision, note }),
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Gate ${decision} failed: ${e.error || r.status}`); }
+  } catch (err) { alert('Gate request failed: ' + err); }
+}
+
+async function rerunFrom(subject, stage) {
+  if (!confirm(`Reprocess ${stage} and everything downstream for ${subject}?`)) return;
+  try {
+    const r = await fetch(`/api/rerun/${subject}/${stage}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); alert('Reprocess failed: ' + (e.error || r.status)); }
+  } catch (err) { alert('Reprocess request failed: ' + err); }
 }
 
 function renderPipeline() {
