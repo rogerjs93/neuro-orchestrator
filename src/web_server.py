@@ -28,6 +28,8 @@ from pipeline.runner import PipelineRunner
 from pipeline.persistence import SCHEMA_VERSION, load_checkpoint, save_checkpoint
 from pipeline.state import PipelineState, STAGE_ORDER, STAGE_REQUIRES, StageStatus
 from pipeline.tasks.stl_export import PRESETS as STL_PRESETS, generate_stl, get_mask_catalog
+from pipeline.manifest import ArtifactManifest, ensure_dataset_description
+from pipeline.adapters import register_stage_outputs
 from utils.bids import scan_bids_dataset
 
 # -- Config --------------------------------------------------------------------
@@ -47,6 +49,10 @@ app.add_middleware(
 # -- Global state --------------------------------------------------------------
 pipeline_state = PipelineState()
 runner = PipelineRunner(DATA_DIR, OUTPUT_DIR, FS_LICENSE, mock=MOCK)
+# Canonical artifact ledger (BIDS-Derivatives root). Additive: records what each
+# stage produced; downstream still uses existing discovery until the A2 swap.
+manifest = ArtifactManifest(OUTPUT_DIR / "derivatives")
+ensure_dataset_description(OUTPUT_DIR / "derivatives")
 connections: List[WebSocket] = []
 log_buffer: List[Dict[str, Any]] = []  # last 500 events
 MAX_LOG_BUFFER = 500
@@ -1054,6 +1060,14 @@ async def _run_stl_worker() -> None:
             job.status = "completed"
             job.artifact_relpath = rel
             job.artifact_relpaths = rels
+            try:
+                manifest.register(
+                    subject=job.subject_id, role="stl", path=result.stl_path,
+                    stage="mask", tool="built-in mesher",
+                    inputs=manifest.input_refs(job.subject_id, ["mask_version"]),
+                )
+            except Exception:
+                pass
             for intent in stl_intents.values():
                 if (
                     intent.subject_id == job.subject_id
@@ -1310,6 +1324,7 @@ async def decide_gate(subject_id: str, stage: str, payload: Dict[str, Any] = Bod
             version_id = str(versions[0].get("version_id", "")).strip()
         job = _enqueue_stl_from_version(subject_id, version_id)
         pipeline_state.set_completed(subject_id, stage)
+        _register_stage_artifacts(subject_id, stage)
         _record_gate_decision(subject_id, stage, "approve", version_id=version_id,
                               note=note, operator=operator, stl_job_id=(job.id if job else None))
         _save_checkpoint_now()
@@ -1979,6 +1994,14 @@ def _enqueue_stl_from_version(subject_id: str, version_id: str, preset: str = "s
         return None
 
 
+def _register_stage_artifacts(subject_id: str, stage: str) -> List[str]:
+    """Record a completed stage's canonical artifacts in the manifest. Best-effort."""
+    try:
+        return register_stage_outputs(manifest, subject=subject_id, stage=stage, output_dir=OUTPUT_DIR)
+    except Exception:
+        return []
+
+
 async def _run_mask_stage(subject_id: str) -> str:
     """Run the masking stage with gate handling. Returns completed|paused|skipped|failed."""
     gate = _gate_for("mask")
@@ -2034,6 +2057,7 @@ async def _run_mask_stage(subject_id: str) -> str:
                           version_id=saved["version_id"], note="auto",
                           stl_job_id=(job.id if job else None))
     pipeline_state.set_completed(subject_id, "mask")
+    _register_stage_artifacts(subject_id, "mask")
     _save_checkpoint_now()
     await broadcast(_snapshot())
     return "completed"
@@ -2114,8 +2138,14 @@ async def _run(subject_id: str, stages: Optional[List[str]] = None) -> None:
             break
 
         pipeline_state.set_completed(subject_id, stage)
+        roles = _register_stage_artifacts(subject_id, stage)
         _save_checkpoint_now()
         await broadcast(_snapshot())
+        if roles:
+            await broadcast({
+                "type": "log", "subject_id": subject_id, "stage": stage,
+                "message": f"[manifest] registered: {', '.join(roles)}", "level": "info",
+            })
         if stage == "fastsurfer":
             await _process_stl_intents_for_subject(subject_id)
 

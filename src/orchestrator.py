@@ -24,6 +24,8 @@ from textual.widgets import (
 from pipeline.runner import PipelineRunner
 from pipeline.persistence import SCHEMA_VERSION, load_checkpoint, save_checkpoint
 from pipeline.state import PipelineState, StageStatus, STAGE_ORDER
+from pipeline.manifest import ArtifactManifest, ensure_dataset_description
+from pipeline.adapters import register_stage_outputs
 from utils.bids import scan_bids_dataset
 
 # ── Paths from env ─────────────────────────────────────────────────────────────
@@ -133,6 +135,8 @@ class NeuroPipeline(App):
         super().__init__()
         self.state = PipelineState()
         self.runner = PipelineRunner(DATA_DIR, OUTPUT_DIR, FS_LICENSE, mock=MOCK)
+        self.manifest = ArtifactManifest(OUTPUT_DIR / "derivatives")
+        ensure_dataset_description(OUTPUT_DIR / "derivatives")
         self.log_history: List[Dict[str, Any]] = []
         self._pending_log_events = 0
         self._last_checkpoint_ts = 0.0
@@ -367,8 +371,14 @@ class NeuroPipeline(App):
                 break
 
             self.state.set_completed(subject_id, stage)
+            try:
+                roles = register_stage_outputs(self.manifest, subject=subject_id, stage=stage, output_dir=OUTPUT_DIR)
+            except Exception:
+                roles = []
             self._save_checkpoint()
             self._log(subject_id, f"✓ {stage} complete", "green")
+            if roles:
+                self._log(subject_id, f"[manifest] registered: {', '.join(roles)}", "dim")
             self._refresh_table()
 
         # Final status
