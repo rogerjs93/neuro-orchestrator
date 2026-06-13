@@ -60,6 +60,8 @@
   .gate-btn.refine { border-color: var(--teal); color: var(--teal); }
   .gate-btn.redo { border-color: var(--yellow); color: var(--yellow); }
   .gate-btn.skip { border-color: var(--red); color: var(--red); }
+  .stage-box.rerunnable { cursor: pointer; }
+  .stage-box.rerunnable:hover { outline: 1px solid var(--teal); outline-offset: 1px; }
 
   /* ── Reset ─────────────────────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1250,8 +1252,12 @@ function renderPipeline() {
 
     for (const stage of STAGES) {
       const status = (sub.stages||{})[stage] || 'pending';
+      const canRerun = status === 'completed' || status === 'failed' || status === 'skipped';
+      const click = canRerun ? `onclick="event.stopPropagation();rerunFrom('${id}','${stage}')"` : '';
+      const title = canRerun ? `title="Reprocess ${stage} and everything downstream"` : '';
+      const rerunCls = canRerun ? ' rerunnable' : '';
       html += `<td class="td-stage">
-        <div class="stage-box ${status}">
+        <div class="stage-box ${status}${rerunCls}" ${click} ${title}>
           <span class="s-icon">${STATUS_ICON[status]||'○'}</span>
           <span class="s-label">${status === 'running' ? '…' : status.toUpperCase().slice(0,4)}</span>
         </div>
