@@ -755,6 +755,22 @@
     </div>
     <input type="file" id="file-input" accept=".zip">
 
+    <div class="stl-panel" id="review-panel">
+      <div class="stl-title">REVIEW GATES</div>
+      <div class="stl-row">
+        <span class="stl-label">Masking</span>
+        <select id="gate-mask-mode" class="stl-select" onchange="updateGateConfig()">
+          <option value="gated">Pause for review</option>
+          <option value="auto">Run automatically</option>
+          <option value="off">Skip masking</option>
+        </select>
+        <select id="gate-mask-trigger" class="stl-select" onchange="updateGateConfig()">
+          <option value="always">Always pause</option>
+          <option value="on_flag">Only if flagged</option>
+        </select>
+      </div>
+    </div>
+
     <div class="stl-panel">
       <div class="stl-title">STL GENERATION</div>
       <div class="stl-row">
@@ -1076,7 +1092,32 @@ function handleSnapshot(snap) {
   updateActionButtons();
 }
 
+function syncGateControls(gates) {
+  const cfg = gates && gates.config && gates.config.mask;
+  const modeSel = document.getElementById('gate-mask-mode');
+  const trigSel = document.getElementById('gate-mask-trigger');
+  if (!modeSel || !trigSel) return;
+  if (cfg) {
+    if (document.activeElement !== modeSel) modeSel.value = cfg.mode || 'gated';
+    if (document.activeElement !== trigSel) trigSel.value = cfg.trigger || 'always';
+  }
+  trigSel.disabled = modeSel.value !== 'gated';
+}
+
+async function updateGateConfig() {
+  const mode = document.getElementById('gate-mask-mode').value;
+  const trigger = document.getElementById('gate-mask-trigger').value;
+  document.getElementById('gate-mask-trigger').disabled = mode !== 'gated';
+  try {
+    await fetch('/api/gate-config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage: 'mask', mode, trigger }),
+    });
+  } catch (err) { alert('Could not update review gate: ' + err); }
+}
+
 function renderGates(gates) {
+  syncGateControls(gates);
   const pending = (gates && gates.pending) || [];
   const pipe = document.getElementById('pipeline-wrap');
   let wrap = document.getElementById('gate-wrap');
