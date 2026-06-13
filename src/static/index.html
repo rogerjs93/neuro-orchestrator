@@ -871,14 +871,14 @@ let stlMaskSelections = {
   by_network: new Set(),
   by_tissue: new Set(),
 };
-const STAGES = ['mriqc','fastsurfer','fmriprep','mrtrix3','connectivity','network'];
+const STAGES = ['mriqc','fastsurfer','fmriprep','mrtrix3','connectivity','mask','network'];
 const AUTO_MASK_PRESETS = new Set(['by_region', 'by_lobe', 'by_network', 'by_tissue']);
 const STAGE_LABELS = {
   mriqc: 'MRIQC', fastsurfer: 'FSURF', fmriprep: 'FMRIPREP',
-  mrtrix3: 'MRTRIX', connectivity: 'CONN', network: 'NET'
+  mrtrix3: 'MRTRIX', connectivity: 'CONN', mask: 'MASK/STL', network: 'NET'
 };
 const STATUS_ICON = {
-  pending: '○', running: '⟳', completed: '✓', failed: '✗', skipped: '—'
+  pending: '○', running: '⟳', awaiting_review: '⏸', completed: '✓', failed: '✗', skipped: '—'
 };
 const STL_PRESET_DEFAULTS = {
   standard: {

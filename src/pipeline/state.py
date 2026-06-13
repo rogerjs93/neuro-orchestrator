@@ -7,11 +7,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 class StageStatus(Enum):
-    PENDING   = "pending"
-    RUNNING   = "running"
-    COMPLETED = "completed"
-    FAILED    = "failed"
-    SKIPPED   = "skipped"   # subject lacks required modality
+    PENDING         = "pending"
+    RUNNING         = "running"
+    AWAITING_REVIEW = "awaiting_review"   # paused at a blocking gate for operator review
+    COMPLETED       = "completed"
+    FAILED          = "failed"
+    SKIPPED         = "skipped"   # subject lacks required modality (or a dependency was skipped)
 
 
 # Ordered list of pipeline stages
@@ -21,6 +22,7 @@ STAGE_ORDER: List[str] = [
     "fmriprep",
     "mrtrix3",
     "connectivity",
+    "mask",
     "network",
 ]
 
@@ -31,7 +33,14 @@ STAGE_REQUIRES: Dict[str, Set[str]] = {
     "fmriprep":     {"anat", "func"},
     "mrtrix3":      {"dwi"},
     "connectivity": {"func"},
+    "mask":         {"anat"},
     "network":      set(),   # runs if any upstream stage completed
+}
+
+# Stages that depend on another stage's output, not just on a modality.
+# If the prerequisite stage is skipped, the dependent stage is skipped too.
+STAGE_DEPENDS_ON: Dict[str, str] = {
+    "mask": "fastsurfer",   # masking/STL builds on the segmentation
 }
 
 
@@ -42,9 +51,14 @@ class SubjectState:
     stage_status: Dict[str, StageStatus] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # STAGE_ORDER lists prerequisites before dependents, so a stage's
+        # dependency status is already resolved by the time we reach it.
         for stage in STAGE_ORDER:
             reqs = STAGE_REQUIRES[stage]
+            dep = STAGE_DEPENDS_ON.get(stage)
             if reqs and not reqs.issubset(self.modalities):
+                self.stage_status[stage] = StageStatus.SKIPPED
+            elif dep and self.stage_status.get(dep) == StageStatus.SKIPPED:
                 self.stage_status[stage] = StageStatus.SKIPPED
             else:
                 self.stage_status[stage] = StageStatus.PENDING
@@ -78,15 +92,16 @@ class SubjectState:
         active = [s for s in self.stage_status.values() if s != StageStatus.SKIPPED]
         if not active:
             return StageStatus.SKIPPED
-        if any(s == StageStatus.RUNNING   for s in active): return StageStatus.RUNNING
-        if any(s == StageStatus.FAILED    for s in active): return StageStatus.FAILED
-        if all(s == StageStatus.COMPLETED for s in active): return StageStatus.COMPLETED
+        if any(s == StageStatus.RUNNING         for s in active): return StageStatus.RUNNING
+        if any(s == StageStatus.AWAITING_REVIEW for s in active): return StageStatus.AWAITING_REVIEW
+        if any(s == StageStatus.FAILED          for s in active): return StageStatus.FAILED
+        if all(s == StageStatus.COMPLETED       for s in active): return StageStatus.COMPLETED
         return StageStatus.PENDING
 
     @property
     def current_stage(self) -> Optional[str]:
         for stage in STAGE_ORDER:
-            if self.stage_status.get(stage) == StageStatus.RUNNING:
+            if self.stage_status.get(stage) in (StageStatus.RUNNING, StageStatus.AWAITING_REVIEW):
                 return stage
         for stage in reversed(STAGE_ORDER):
             if self.stage_status.get(stage) == StageStatus.COMPLETED:
@@ -150,8 +165,10 @@ class PipelineState:
             for stage in STAGE_ORDER:
                 required = STAGE_REQUIRES[stage]
                 has_modalities = not required or required.issubset(subject.modalities)
+                dep = STAGE_DEPENDS_ON.get(stage)
+                dep_skipped = dep is not None and subject.stage_status.get(dep) == StageStatus.SKIPPED
                 current = subject.stage_status.get(stage, StageStatus.PENDING)
-                if not has_modalities:
+                if not has_modalities or dep_skipped:
                     subject.stage_status[stage] = StageStatus.SKIPPED
                 elif current == StageStatus.SKIPPED:
                     subject.stage_status[stage] = StageStatus.PENDING

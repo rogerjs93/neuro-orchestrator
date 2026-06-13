@@ -102,6 +102,12 @@ class PipelineRunner:
                 return True, ""
             return False, f"Network stage completed but metrics JSON is missing: {metrics}."
 
+        if stage == "mask":
+            versions = self.output_dir / "masks" / subject_id / "versions"
+            if versions.is_dir() and any(versions.glob("*.nii.gz")):
+                return True, ""
+            return False, f"Mask stage completed but no mask version was found under {versions} for {subject_id}."
+
         return True, ""
 
     async def run_stage(
@@ -349,6 +355,20 @@ class PipelineRunner:
                 "--connectivity-dir", str(self.output_dir / "connectivity"),
                 "--tractography-dir", str(self.output_dir / "mrtrix3"),
                 "--output-dir",       str(self.output_dir / "network"),
+            ]
+
+        if stage == "mask":
+            # Auto path: build the baseline mask from the segmentation and export an STL.
+            # masks/ and stl/ are written under the top-level output dir (where the web
+            # editor reads versions from), so --output-dir is the outputs root itself.
+            return [
+                "python", "-m", "pipeline.tasks.mask_stl",
+                "--subject", subject_id,
+                "--fastsurfer-dir", str(self.output_dir / "fastsurfer"),
+                "--output-dir",     str(self.output_dir),
+                "--selection",      "whole",
+                "--stl-preset",     "standard",
+                "--export-stl",
             ]
 
         return None
@@ -645,6 +665,7 @@ echo "tractography complete for {subject_id}"
             "fmriprep":     ["Brain extraction (BET)", "T1 registration (ANTs)", "Confound estimation", "Cleaning up"],
             "mrtrix3":      ["DWI denoising", "Preprocessing", "Response function", "FOD estimation", "Tractography (100k streamlines)"],
             "connectivity": ["Loading fMRI", "Parcellation (Schaefer 200)", "Timeseries extraction", "Computing FC matrix"],
+            "mask":         ["Loading segmentation", "Building baseline mask", "Saving mask version", "Meshing (marching cubes)", "Exporting STL"],
             "network":      ["Building graph", "Clustering coefficients", "Global efficiency", "Hub detection", "Saving metrics"],
         }
         for step in steps.get(stage, ["Processing..."]):

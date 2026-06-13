@@ -46,6 +46,21 @@ stages:
     atlas: "schaefer_2018"
     n_parcels: 200
 
+  mask:
+    description: "3D mask + STL export (ROI mask always produced; STL optional)"
+    python_module: pipeline.tasks.mask_stl
+    requires: [anat]
+    depends_on: [fastsurfer]   # builds on the segmentation labels
+    enabled: true
+    mode: gated                # auto | gated | off  (gated pauses for review in the editor)
+    selection: whole           # whole | external_cortex | by_region | by_lobe | by_network | by_tissue
+    labels: []                 # explicit label ids for by_region
+    groups: []                 # group names for by_lobe / by_network / by_tissue
+    export_stl: true           # mask is always written; STL export is optional
+    stl_preset: standard
+    gate:
+      trigger: always          # always | on_flag  (per-run choice; only when mode: gated)
+
   network:
     description: "Graph metrics + hub detection (BCT + NetworkX)"
     python_module: pipeline.tasks.network
