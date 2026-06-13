@@ -26,6 +26,7 @@ from pipeline.persistence import SCHEMA_VERSION, load_checkpoint, save_checkpoin
 from pipeline.state import PipelineState, StageStatus, STAGE_ORDER
 from pipeline.manifest import ArtifactManifest, ensure_dataset_description
 from pipeline.adapters import register_stage_outputs
+from pipeline.validators import validate_and_record
 from utils.bids import scan_bids_dataset
 
 # ── Paths from env ─────────────────────────────────────────────────────────────
@@ -373,6 +374,7 @@ class NeuroPipeline(App):
             self.state.set_completed(subject_id, stage)
             try:
                 roles = register_stage_outputs(self.manifest, subject=subject_id, stage=stage, output_dir=OUTPUT_DIR)
+                validate_and_record(self.manifest, subject_id, roles)
             except Exception:
                 roles = []
             self._save_checkpoint()

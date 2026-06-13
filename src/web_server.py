@@ -30,6 +30,7 @@ from pipeline.state import PipelineState, STAGE_ORDER, STAGE_REQUIRES, StageStat
 from pipeline.tasks.stl_export import PRESETS as STL_PRESETS, generate_stl, get_mask_catalog
 from pipeline.manifest import ArtifactManifest, ensure_dataset_description
 from pipeline.adapters import register_stage_outputs
+from pipeline.validators import validate_artifact, validate_and_record
 from utils.bids import scan_bids_dataset
 
 # -- Config --------------------------------------------------------------------
@@ -1939,10 +1940,15 @@ def _gate_for(stage: str) -> Dict[str, str]:
     }
 
 
-def _mask_baseline_is_flagged(saved: Dict[str, Any]) -> bool:
-    # Minimal on_flag heuristic: an empty/implausible baseline needs human review.
-    # Extend later with connected-component count, volume bounds, or QC metrics.
-    return int(saved.get("voxel_count", 0)) <= 0
+def _mask_baseline_is_flagged(subject_id: str, saved: Dict[str, Any]) -> bool:
+    # on_flag = the mask validator is not happy (empty, or too many disconnected
+    # components → likely noise). Falls back to the voxel count if validation fails.
+    try:
+        path = _mask_version_nifti_path(subject_id, saved["version_id"])
+        result = validate_artifact("mask_version", path)
+        return not result.ok
+    except Exception:
+        return int(saved.get("voxel_count", 0)) <= 0
 
 
 def _record_gate_decision(
@@ -2001,11 +2007,16 @@ def _enqueue_stl_from_version(subject_id: str, version_id: str, preset: str = "s
 
 
 def _register_stage_artifacts(subject_id: str, stage: str) -> List[str]:
-    """Record a completed stage's canonical artifacts in the manifest. Best-effort."""
+    """Record a completed stage's canonical artifacts, then validate them. Best-effort."""
     try:
-        return register_stage_outputs(manifest, subject=subject_id, stage=stage, output_dir=OUTPUT_DIR)
+        roles = register_stage_outputs(manifest, subject=subject_id, stage=stage, output_dir=OUTPUT_DIR)
     except Exception:
         return []
+    try:
+        validate_and_record(manifest, subject_id, roles)
+    except Exception:
+        pass
+    return roles
 
 
 async def _run_mask_stage(subject_id: str) -> str:
@@ -2046,7 +2057,7 @@ async def _run_mask_stage(subject_id: str) -> str:
 
     needs_review = mode == "gated" and (
         gate["trigger"] == "always"
-        or (gate["trigger"] == "on_flag" and _mask_baseline_is_flagged(saved))
+        or (gate["trigger"] == "on_flag" and _mask_baseline_is_flagged(subject_id, saved))
     )
     if needs_review:
         sub.stage_status["mask"] = StageStatus.AWAITING_REVIEW
