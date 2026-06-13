@@ -757,6 +757,17 @@ def _apply_mask_operation(mask: np.ndarray, operation: Dict[str, Any]) -> tuple[
         largest = int(np.argmax(counts))
         out = labeled == largest
         return out, "keep_largest_component"
+    if op_type in {"repair_topology", "make_printable"}:
+        # One-click topology cleanup: largest component + fill enclosed cavities,
+        # for a watertight, genus-reduced, printable mask.
+        from pipeline.topology import repair_mask_topology
+        repaired, report = repair_mask_topology(out)
+        out = np.asarray(repaired, dtype=bool)
+        summary = (
+            f"repair_topology removed_components={report.get('removed_components', 0)} "
+            f"filled_cavities={report.get('filled_cavities', 0)}"
+        )
+        return out, summary
 
     raise ValueError(f"Unsupported operation.type '{op_type}'")
 
@@ -2065,6 +2076,8 @@ def _mask_gate_detail(subject_id: str) -> Dict[str, Any]:
     try:
         res = validate_artifact("mask_version", _mask_version_nifti_path(subject_id, version_id))
         detail["n_components"] = int(res.qc.get("n_components", 0))
+        detail["n_cavities"] = res.qc.get("n_cavities")
+        detail["genus"] = res.qc.get("genus")
         detail["ok"] = bool(res.ok)
         detail["messages"] = list(res.messages)
     except Exception:

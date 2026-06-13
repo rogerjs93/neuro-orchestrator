@@ -657,6 +657,16 @@ def _generate_single_stl(
 
     mesh, decimation_mode = _mesh_from_mask(mask, spacing, params)
 
+    # Topology repair for printability (best-effort, never fatal) + report.
+    mesh_topo = None
+    topology_repair = None
+    try:
+        from pipeline.topology import repair_mesh, mesh_topology
+        mesh, topology_repair = repair_mesh(mesh)
+        mesh_topo = mesh_topology(mesh)
+    except Exception:
+        pass
+
     subject_out = output_dir / subject_id
     subject_out.mkdir(parents=True, exist_ok=True)
 
@@ -678,6 +688,8 @@ def _generate_single_stl(
         "faces": int(len(mesh.faces)),
         "decimation_mode": decimation_mode,
         "requested_decimation_ratio": float(params.get("decimation_ratio", 1.0)),
+        "mesh_topology": mesh_topo,
+        "topology_repair": topology_repair,
         "output_stl": str(stl_path),
     }
     sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")

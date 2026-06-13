@@ -1137,6 +1137,16 @@ function renderGates(gates) {
     const sel = d.selection || 'whole brain';
     const clean = d.ok !== false;
     const compTxt = comp != null ? `${comp} connected ${comp === 1 ? 'piece' : 'pieces'}` : '';
+    const genus = d.genus, cav = d.n_cavities;
+    let topoTxt = '';
+    if (genus === 0 && (cav === 0 || cav == null)) {
+      topoTxt = 'topology clean';
+    } else {
+      const parts = [];
+      if (genus) parts.push(`${genus} handle${genus !== 1 ? 's' : ''}`);
+      if (cav) parts.push(`${cav} cavit${cav !== 1 ? 'ies' : 'y'}`);
+      topoTxt = parts.join(' · ');
+    }
     const status = clean
       ? `<span class="gate-ok">✓ Looks clean — ready to approve</span>`
       : `<span class="gate-warn">⚠ ${(d.messages && d.messages.length ? d.messages.join('; ') : 'Worth a look before approving')}</span>`;
@@ -1153,6 +1163,7 @@ function renderGates(gates) {
         <span class="gm"><b>${sel}</b></span>
         <span class="gm">${vox} voxels</span>
         ${compTxt ? `<span class="gm">${compTxt}</span>` : ''}
+        ${topoTxt ? `<span class="gm">${topoTxt}</span>` : ''}
       </div>
       <div class="gate-status">${status}</div>
       <div class="gate-msg">Downstream stages are paused. Approve to export and continue,

@@ -94,18 +94,36 @@ def _v_mask(path: Path) -> ValidationResult:
     try:
         import numpy as np
         import nibabel as nib
-        from scipy.ndimage import label
+        from pipeline.topology import mask_topology
         data = np.asarray(nib.load(str(path)).get_fdata()) > 0
-        vox = int(data.sum())
-        _, n_comp = label(data)
+        topo = mask_topology(data)
+        vox = int(topo.get("voxel_count", int(data.sum())))
+        n_comp = int(topo.get("n_components", 0))
+        cavities = topo.get("n_cavities")
+        genus = topo.get("genus")
+
         msgs: List[str] = []
         ok = vox > 0
         if not ok:
             msgs.append("mask is empty")
+        # Disconnected debris is a confident failure; topology quirks (handles,
+        # cavities) are reported but not failed — they can be real anatomy.
         if vox > 0 and n_comp > MASK_MAX_COMPONENTS:
             ok = False
             msgs.append(f"{n_comp} disconnected components (possible noise)")
-        return ValidationResult(ok, {"voxel_count": vox, "n_components": int(n_comp)}, msgs)
+        if genus:
+            msgs.append(f"genus {genus} ({genus} handle{'s' if genus != 1 else ''})")
+        if cavities:
+            msgs.append(f"{cavities} enclosed cavit{'ies' if cavities != 1 else 'y'}")
+
+        qc = {
+            "voxel_count": vox,
+            "n_components": n_comp,
+            "n_cavities": cavities,
+            "genus": genus,
+            "euler_number": topo.get("euler_number"),
+        }
+        return ValidationResult(ok, qc, msgs)
     except Exception as exc:
         return _skipped(str(exc))
 
