@@ -31,6 +31,7 @@ from pipeline.tasks.stl_export import PRESETS as STL_PRESETS, generate_stl, get_
 from pipeline.manifest import ArtifactManifest, ensure_dataset_description
 from pipeline.adapters import register_stage_outputs
 from pipeline.validators import validate_artifact, validate_and_record
+from pipeline.progress import parse_progress
 from pipeline.group_stats import (
     compare_network_metrics,
     compare_fc_matrices,
@@ -116,6 +117,9 @@ gate_audit: List[Dict[str, Any]] = []
 # Cached QC summary per pending mask gate, so the reviewer sees metrics inline
 # without recomputing on every snapshot broadcast. Cleared when the gate resolves.
 mask_gate_details: Dict[str, Dict[str, Any]] = {}
+# Live progress for the currently-running stage of each subject (parsed from the
+# tool's streamed log). Ephemeral; cleared when the stage ends.
+stage_progress: Dict[str, Dict[str, Any]] = {}
 MASK_CACHE_MAX_ITEMS = 8
 _mask_volume_cache: "OrderedDict[str, tuple[np.ndarray, nib.spatialimages.SpatialImage, Dict[str, Any]]]" = OrderedDict()
 ANATOMY_CACHE_MAX_ITEMS = 4
@@ -1018,6 +1022,7 @@ def _snapshot() -> Dict[str, Any]:
             "progress": {"done": done, "total": total},
             "current_stage": sub.current_stage,
             "artifacts": _list_subject_artifacts(sid),
+            "live": stage_progress.get(sid),
         }
 
     queue_order = list(stl_queue._queue) if hasattr(stl_queue, "_queue") else []
@@ -2312,12 +2317,30 @@ async def _run(subject_id: str, stages: Optional[List[str]] = None) -> None:
         })
 
         failed = False
+        stage_progress[subject_id] = {"stage": stage, "nodes_done": 0, "updated_at": _utc_now()}
         try:
             async for line in runner.run_stage(subject_id, stage):
                 await broadcast({
                     "type": "log", "subject_id": subject_id,
                     "stage": stage, "message": line, "level": "info",
                 })
+                cur = stage_progress.setdefault(subject_id, {"stage": stage, "nodes_done": 0})
+                cur["stage"] = stage
+                cur["updated_at"] = _utc_now()
+                prog = parse_progress(stage, line)
+                if prog:
+                    if "percent" in prog:
+                        cur["percent"] = prog["percent"]
+                    if prog.get("event") == "finished":
+                        cur["nodes_done"] = cur.get("nodes_done", 0) + 1
+                    if "node" in prog:
+                        cur["node"] = prog["node"]
+                    if "phase" in prog:
+                        cur["phase"] = prog["phase"]
+                    await broadcast({
+                        "type": "progress", "subject_id": subject_id,
+                        "stage": stage, "progress": dict(cur),
+                    })
         except Exception as exc:
             await broadcast({
                 "type": "log", "subject_id": subject_id,
@@ -2326,6 +2349,7 @@ async def _run(subject_id: str, stages: Optional[List[str]] = None) -> None:
             failed = True
 
         if failed:
+            stage_progress.pop(subject_id, None)
             pipeline_state.set_failed(subject_id, stage)
             _save_checkpoint_now()
             await broadcast(_snapshot())
@@ -2333,6 +2357,7 @@ async def _run(subject_id: str, stages: Optional[List[str]] = None) -> None:
 
         valid, validation_error = runner.validate_stage_outputs(subject_id, stage)
         if not valid:
+            stage_progress.pop(subject_id, None)
             pipeline_state.set_failed(subject_id, stage)
             _save_checkpoint_now()
             await broadcast({
@@ -2342,6 +2367,7 @@ async def _run(subject_id: str, stages: Optional[List[str]] = None) -> None:
             await broadcast(_snapshot())
             break
 
+        stage_progress.pop(subject_id, None)
         pipeline_state.set_completed(subject_id, stage)
         roles = _register_stage_artifacts(subject_id, stage)
         _save_checkpoint_now()

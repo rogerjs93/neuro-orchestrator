@@ -73,6 +73,7 @@
   .grp-table th { text-align: left; color: var(--text-dim); font-weight: 500; border-bottom: 1px solid var(--border); padding: 4px 6px; }
   .grp-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-dim); }
   .grp-table tr.sig td { color: var(--teal); }
+  .live-prog { font-size: 11px; color: var(--teal); font-family: var(--font-mono); margin-left: 6px; }
 
   /* ── Reset ─────────────────────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -941,6 +942,8 @@
 
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
+let liveProgress   = {};       // {sub-001: {percent,node,phase,nodes_done}} from progress events
+let lastActivity   = {};       // {sub-001: epoch_ms} last log line, for heartbeat
 let subjects       = {};       // {sub-001: {...}, ...}
 let selectedSubject = null;    // for RUN SELECTED
 let logFilter      = null;     // null = all
@@ -1108,6 +1111,7 @@ function connect() {
     const msg = JSON.parse(e.data);
     if (msg.type === 'state_snapshot') handleSnapshot(msg);
     else if (msg.type === 'log')       handleLogMsg(msg);
+    else if (msg.type === 'progress')  handleProgress(msg);
   };
 }
 
@@ -1237,6 +1241,38 @@ async function rerunFrom(subject, stage) {
     });
     if (!r.ok) { const e = await r.json().catch(() => ({})); alert('Reprocess failed: ' + (e.error || r.status)); }
   } catch (err) { alert('Reprocess request failed: ' + err); }
+}
+
+function shortNode(n) {
+  const parts = String(n).split('.');
+  return parts[parts.length - 1];
+}
+
+function liveText(id) {
+  const sub = subjects[id];
+  if (!sub || sub.overall !== 'running') return '';
+  const lp = liveProgress[id] || sub.live || {};
+  const parts = [];
+  if (lp.percent != null) parts.push(lp.percent + '%');
+  if (lp.node) parts.push((lp.nodes_done ? lp.nodes_done + ' · ' : '') + shortNode(lp.node));
+  else if (lp.nodes_done) parts.push(lp.nodes_done + ' nodes');
+  if (lp.phase) parts.push(lp.phase);
+  const t = lastActivity[id];
+  if (t) parts.push(Math.round((Date.now() - t) / 1000) + 's ago');
+  return parts.join(' · ');
+}
+
+function refreshLive() {
+  for (const id of Object.keys(subjects)) {
+    const el = document.getElementById('live-' + id);
+    if (el) el.textContent = liveText(id);
+  }
+}
+
+function handleProgress(msg) {
+  liveProgress[msg.subject_id] = msg.progress || {};
+  lastActivity[msg.subject_id] = Date.now();
+  refreshLive();
 }
 
 function grpToggleMethod() {
@@ -1403,6 +1439,7 @@ function renderPipeline() {
         ${id}
         <div class="sub-meta">${mods}
           <span class="progress-text">${done}/${total}</span>
+          <span class="live-prog" id="live-${id}"></span>
         </div>
       </td>`;
 
@@ -1424,6 +1461,7 @@ function renderPipeline() {
 
   html += `</tbody></table>`;
   wrap.innerHTML = html;
+  refreshLive();
 
   const allIds = ids;
   const checkedCount = allIds.filter(id => checkedSubjects.has(id)).length;
@@ -1950,6 +1988,7 @@ function applyLogFilter() {
 
 // ── Log rendering ─────────────────────────────────────────────────────────────
 function handleLogMsg(msg) {
+  if (msg.subject_id) { lastActivity[msg.subject_id] = Date.now(); }
   const container = document.getElementById('log-output');
   const now = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const el  = document.createElement('div');
@@ -2213,6 +2252,7 @@ async function confirmCleanupStl() {
 setupDragDrop();
 connect();
 updateActionButtons();
+setInterval(refreshLive, 1000);   // tick the heartbeat / "Ns ago" display
 
 applyPresetDefaultsToAdvanced(document.getElementById('stl-preset').value);
 document.getElementById('stl-preset').addEventListener('change', () => {
