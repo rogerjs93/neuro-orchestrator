@@ -36,6 +36,7 @@ from pipeline.group_stats import (
     compare_network_metrics,
     compare_fc_matrices,
     compare_fc_permutation,
+    compare_fc_nbs,
     groups_from_participants,
     covariates_from_participants,
 )
@@ -1506,6 +1507,16 @@ async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONRes
             method = str(payload.get("method", "permutation")).strip().lower()
             if method in ("screen", "fdr", "mass_univariate"):
                 result = compare_fc_matrices(fc_by_subject, groups, alpha=alpha)
+            elif method == "nbs":
+                try:
+                    n_perm = int(payload.get("n_perm", 1000))
+                except (TypeError, ValueError):
+                    n_perm = 1000
+                try:
+                    threshold = float(payload.get("nbs_threshold", 3.0))
+                except (TypeError, ValueError):
+                    threshold = 3.0
+                result = compare_fc_nbs(fc_by_subject, groups, alpha=alpha, threshold=threshold, n_perm=n_perm)
             else:
                 try:
                     n_perm = int(payload.get("n_perm", 5000))

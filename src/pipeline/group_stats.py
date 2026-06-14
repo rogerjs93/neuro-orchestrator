@@ -27,6 +27,7 @@ import numpy as np
 REF_FDR = "Benjamini & Hochberg (1995), J. R. Statist. Soc. B 57:289-300."
 REF_FWE = "Winkler et al. (2014), Permutation inference for the GLM, NeuroImage 92:381-397."
 REF_NILEARN = "Abraham et al. (2014), Nilearn, Front. Neuroinform. 8:14."
+REF_NBS = "Zalesky, Fornito & Bullmore (2010), Network-based statistic, NeuroImage 53:1197-1207."
 
 
 def benjamini_hochberg(pvals: Sequence[float]) -> "np.ndarray":
@@ -399,6 +400,86 @@ def compare_fc_permutation(
         "top_edges": top_edges,
     }
     result.update(_fc_matrix_payload(t, iu, n, sig))
+    return result
+
+
+def compare_fc_nbs(
+    fc_by_subject: Mapping[str, "np.ndarray"],
+    groups: Mapping[str, Sequence[str]],
+    alpha: float = 0.05,
+    threshold: float = 3.0,
+    n_perm: int = 1000,
+    top: int = 25,
+    seed: int = 0,
+) -> Dict[str, Any]:
+    """Network-Based Statistic (Zalesky 2010) via bctpy — subnetwork-level FWER.
+
+    `threshold` is the primary test-statistic (t) threshold used to form candidate
+    connected components; component significance is established by permutation.
+    """
+    from bct.nbs import nbs_bct
+    from scipy.stats import ttest_ind
+
+    a_label, b_label = _two_labels(groups)
+    A = [np.asarray(fc_by_subject[s], dtype=float) for s in groups[a_label] if s in fc_by_subject]
+    B = [np.asarray(fc_by_subject[s], dtype=float) for s in groups[b_label] if s in fc_by_subject]
+    if len(A) < 2 or len(B) < 2:
+        raise ValueError("Need at least two FC matrices per group")
+    n = A[0].shape[0]
+    if A[0].shape[0] != A[0].shape[1] or any(m.shape != (n, n) for m in A + B):
+        raise ValueError("FC matrices must be square and the same shape across subjects")
+
+    x = np.stack(A, axis=2)  # (N, N, nA)
+    y = np.stack(B, axis=2)  # (N, N, nB)
+    pval, adj, _null = nbs_bct(x, y, threshold, k=n_perm, tail="both", seed=seed)
+    pvals = np.atleast_1d(np.asarray(pval, dtype=float))
+    adj = np.asarray(adj)
+
+    iu = np.triu_indices(n, k=1)
+    n_components = int(adj.max()) if adj.size else 0
+    components = []
+    sig_mask = np.zeros((n, n), dtype=bool)
+    for comp in range(1, n_components + 1):
+        p = float(pvals[comp - 1]) if comp - 1 < pvals.size else 1.0
+        comp_mask = adj == comp
+        is_sig = p < alpha
+        components.append({
+            "component": comp, "p": p,
+            "n_edges": int(np.count_nonzero(np.triu(comp_mask, 1))),
+            "significant": is_sig,
+        })
+        if is_sig:
+            sig_mask |= comp_mask
+
+    # Per-edge t for visualization (NBS itself yields components, not edge p-values).
+    av = np.array([m[iu] for m in A])
+    bv = np.array([m[iu] for m in B])
+    t, _ = ttest_ind(av, bv, axis=0, equal_var=False)
+    sig_edge_mask = sig_mask[iu]
+
+    order = np.argsort(-np.abs(t))[:top]
+    top_edges = [{
+        "i": int(iu[0][e]), "j": int(iu[1][e]),
+        "t": round(float(t[e]), 4), "significant": bool(sig_edge_mask[e]),
+    } for e in order]
+
+    result = {
+        "kind": "fc_matrix",
+        "method": f"Network-Based Statistic (bctpy nbs_bct), primary t-threshold {threshold}",
+        "correction": "FWER at subnetwork level (NBS permutation)",
+        "references": [REF_NBS],
+        "comparison": f"{a_label} vs {b_label}",
+        "groups": {a_label: len(A), b_label: len(B)},
+        "alpha": alpha,
+        "n_perm": int(n_perm),
+        "threshold": float(threshold),
+        "n_components": n_components,
+        "n_significant_components": sum(1 for c in components if c["significant"]),
+        "n_significant": int(np.count_nonzero(np.triu(sig_mask, 1))),
+        "components": components,
+        "top_edges": top_edges,
+    }
+    result.update(_fc_matrix_payload(t, iu, n, sig_edge_mask))
     return result
 
 

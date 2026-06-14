@@ -158,6 +158,35 @@ def test_fc_result_includes_symmetric_t_matrix():
     assert [2, 5] in res["sig_edges"]
 
 
+def test_nbs_finds_planted_subnetwork():
+    rng = np.random.default_rng(11)
+    n, k = 12, 14
+
+    def rand_fc():
+        x = rng.normal(size=(n, n))
+        m = (x + x.T) / 2
+        np.fill_diagonal(m, 1.0)
+        return m
+
+    groups = {"A": [f"a{i}" for i in range(k)], "B": [f"b{i}" for i in range(k)]}
+    net = [(0, 1), (0, 2), (1, 2), (2, 3)]  # a connected subnetwork
+    fc = {s: rand_fc() for s in groups["A"]}
+    for s in groups["B"]:
+        m = rand_fc()
+        for (i, j) in net:
+            m[i, j] = m[j, i] = m[i, j] + 5.0
+        fc[s] = m
+
+    from pipeline.group_stats import compare_fc_nbs
+    res = compare_fc_nbs(fc, groups, alpha=0.05, threshold=2.0, n_perm=200)
+    assert res["method"].startswith("Network-Based")
+    assert res["n_significant_components"] >= 1
+    sig = set(tuple(e) for e in res["sig_edges"])
+    assert (0, 1) in sig and (1, 2) in sig          # planted edges in the significant subnetwork
+    tm = np.array(res["t_matrix"])
+    assert tm.shape == (n, n)
+
+
 def test_fc_requires_two_per_group():
     fc = {"a0": np.eye(5), "b0": np.eye(5)}
     with pytest.raises(ValueError):
