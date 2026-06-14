@@ -22,6 +22,10 @@ trimesh>=4.4.0
 networkx>=3.3
 bctpy>=0.5.2
 
+# Group-level statistics (peer-reviewed): scipy + statsmodels FDR + Nilearn
+# permutation inference (permuted_ols, already covered by nilearn above).
+statsmodels>=0.14
+
 # Utilities
 pyyaml>=6.0.1
 tqdm>=4.66.0

@@ -48,3 +48,36 @@ def test_rerun_unknown_subject_404():
 
 def test_gate_decision_unknown_subject_404():
     assert client.post("/api/gate/sub-nope/mask", json={"decision": "approve"}).status_code == 404
+
+
+def test_group_stats_requires_two_groups():
+    r = client.post("/api/group-stats", json={"target": "network", "groups": {"only": ["s1"]}})
+    assert r.status_code == 400
+
+
+def test_group_stats_network_endpoint_end_to_end():
+    import json
+    import numpy as np
+
+    out = web_server.OUTPUT_DIR
+    (out / "network").mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(3)
+    groups = {"patient": [], "control": []}
+    for i in range(12):
+        for grp, shift in (("patient", 3.0), ("control", 0.0)):
+            sid = f"sub-{grp}{i}"
+            p = out / "network" / f"{sid}_network_metrics.json"
+            p.write_text(json.dumps({
+                "global_efficiency": float(rng.normal(shift, 1.0)),
+                "modularity_Q": float(rng.normal(0.0, 1.0)),
+            }))
+            web_server.manifest.register(subject=sid, role="network_metrics", path=p, stage="network")
+            groups[grp].append(sid)
+
+    r = client.post("/api/group-stats", json={"target": "network", "groups": groups, "alpha": 0.05})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["kind"] == "network_metrics"
+    assert body["references"]                # citeable method recorded
+    assert body["n_significant"] >= 1        # the planted global_efficiency difference
+    assert body["saved_as"].startswith("group/")

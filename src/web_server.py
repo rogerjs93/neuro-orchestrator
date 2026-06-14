@@ -31,6 +31,12 @@ from pipeline.tasks.stl_export import PRESETS as STL_PRESETS, generate_stl, get_
 from pipeline.manifest import ArtifactManifest, ensure_dataset_description
 from pipeline.adapters import register_stage_outputs
 from pipeline.validators import validate_artifact, validate_and_record
+from pipeline.group_stats import (
+    compare_network_metrics,
+    compare_fc_matrices,
+    compare_fc_permutation,
+    groups_from_participants,
+)
 from utils.bids import scan_bids_dataset
 
 # -- Config --------------------------------------------------------------------
@@ -1419,6 +1425,98 @@ async def rerun_from_stage(subject_id: str, stage: str, payload: Dict[str, Any] 
     if bool(payload.get("run", True)):
         asyncio.create_task(_run(subject_id))
     return JSONResponse({"message": "reprocess queued", "stages": changed})
+
+
+@app.get("/api/group-stats")
+async def list_group_stats() -> JSONResponse:
+    out_dir = OUTPUT_DIR / "group"
+    items: List[Dict[str, Any]] = []
+    if out_dir.is_dir():
+        for f in sorted(out_dir.glob("group_*.json"), reverse=True):
+            try:
+                d = json.loads(f.read_text(encoding="utf-8"))
+                items.append({
+                    "file": f.name, "kind": d.get("kind"), "comparison": d.get("comparison"),
+                    "n_significant": d.get("n_significant"), "created_at": d.get("created_at"),
+                })
+            except Exception:
+                continue
+    return JSONResponse({"results": items})
+
+
+@app.post("/api/group-stats")
+async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONResponse:
+    """Two-group hypothesis test over per-subject artifacts (resolved by role)."""
+    _reload_subjects()
+    target = str(payload.get("target", "network")).strip().lower()
+    try:
+        alpha = float(payload.get("alpha", 0.05))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "alpha must be a number"}, status_code=400)
+
+    groups = payload.get("groups")
+    if not groups:
+        column = str(payload.get("participants_column", "")).strip()
+        if column:
+            groups = groups_from_participants(DATA_DIR, column)
+    if not isinstance(groups, dict) or len(groups) != 2:
+        return JSONResponse(
+            {"error": "Provide exactly two groups, or a participants_column with two values"},
+            status_code=400,
+        )
+
+    manifest.load()
+    try:
+        if target in ("network", "network_metrics"):
+            metrics_by_subject: Dict[str, Any] = {}
+            for sids in groups.values():
+                for sid in sids:
+                    path = manifest.resolve_path(sid, "network_metrics")
+                    if path and path.is_file():
+                        try:
+                            metrics_by_subject[sid] = json.loads(path.read_text(encoding="utf-8"))
+                        except Exception:
+                            pass
+            result = compare_network_metrics(metrics_by_subject, groups, alpha=alpha)
+        elif target in ("fc", "fc_matrix"):
+            fc_by_subject: Dict[str, Any] = {}
+            for sids in groups.values():
+                for sid in sids:
+                    path = manifest.resolve_path(sid, "fc_matrix")
+                    if path and path.is_file():
+                        try:
+                            fc_by_subject[sid] = np.load(path)
+                        except Exception:
+                            pass
+            method = str(payload.get("method", "permutation")).strip().lower()
+            if method in ("screen", "fdr", "mass_univariate"):
+                result = compare_fc_matrices(fc_by_subject, groups, alpha=alpha)
+            else:
+                try:
+                    n_perm = int(payload.get("n_perm", 5000))
+                except (TypeError, ValueError):
+                    n_perm = 5000
+                result = compare_fc_permutation(fc_by_subject, groups, alpha=alpha, n_perm=n_perm)
+        else:
+            return JSONResponse({"error": "target must be 'network' or 'fc'"}, status_code=400)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    out_dir = OUTPUT_DIR / "group"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    result["created_at"] = _utc_now()
+    fname = f"group_{result['kind']}_{stamp}.json"
+    (out_dir / fname).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    result["saved_as"] = f"group/{fname}"
+
+    await broadcast({
+        "type": "log", "subject_id": "(group)", "stage": "group-stats",
+        "message": f"[group] {result['comparison']} · {result['kind']} · "
+                   f"{result['n_significant']} significant (alpha={alpha})",
+        "level": "stage",
+    })
+    return JSONResponse(result)
 
 
 @app.post("/api/reset")
