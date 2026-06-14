@@ -50,6 +50,16 @@ def test_gate_decision_unknown_subject_404():
     assert client.post("/api/gate/sub-nope/mask", json={"decision": "approve"}).status_code == 404
 
 
+def test_ingest_requires_dicom_dir_and_participant():
+    assert client.post("/api/ingest/dicom", json={}).status_code == 400
+    assert client.post("/api/ingest/dicom", json={"participant": "sub-01"}).status_code == 400
+
+
+def test_ingest_rejects_missing_dir():
+    r = client.post("/api/ingest/dicom", json={"dicom_dir": "/no/such/dir", "participant": "sub-01"})
+    assert r.status_code == 400
+
+
 def test_group_stats_requires_two_groups():
     r = client.post("/api/group-stats", json={"target": "network", "groups": {"only": ["s1"]}})
     assert r.status_code == 400

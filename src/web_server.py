@@ -32,6 +32,7 @@ from pipeline.manifest import ArtifactManifest, ensure_dataset_description
 from pipeline.adapters import register_stage_outputs
 from pipeline.validators import validate_artifact, validate_and_record
 from pipeline.progress import parse_progress
+from pipeline.ingest import build_dcm2bids_command, write_default_config
 from pipeline.group_stats import (
     compare_network_metrics,
     compare_fc_matrices,
@@ -1543,6 +1544,66 @@ async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONRes
         "level": "stage",
     })
     return JSONResponse(result)
+
+
+async def _run_ingest(cmd: List[str], participant: str) -> None:
+    """Stream a dcm2bids docker run, then refresh the subject list."""
+    await broadcast({"type": "log", "subject_id": "(ingest)", "stage": "ingest",
+                     "message": f"dcm2bids: {' '.join(cmd)}", "level": "stage"})
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        )
+        assert proc.stdout is not None
+        async for raw in proc.stdout:
+            await broadcast({"type": "log", "subject_id": "(ingest)", "stage": "ingest",
+                             "message": raw.decode("utf-8", errors="replace").rstrip(), "level": "info"})
+        await proc.wait()
+        ok = proc.returncode == 0
+    except FileNotFoundError:
+        await broadcast({"type": "log", "subject_id": "(ingest)", "stage": "ingest",
+                         "message": "'docker' not found — DICOM ingestion needs Docker.", "level": "error"})
+        ok = False
+    except Exception as exc:
+        await broadcast({"type": "log", "subject_id": "(ingest)", "stage": "ingest",
+                         "message": f"ingest failed: {exc}", "level": "error"})
+        ok = False
+
+    _reload_subjects()
+    await broadcast({"type": "log", "subject_id": "(ingest)", "stage": "ingest",
+                     "message": f"ingest {'complete' if ok else 'failed'} for {participant}",
+                     "level": "stage" if ok else "error"})
+    await broadcast(_snapshot())
+
+
+@app.post("/api/ingest/dicom")
+async def ingest_dicom(payload: Dict[str, Any] = Body(default={})) -> JSONResponse:
+    """Convert a DICOM directory to BIDS (dcm2bids in Docker) into the data dir."""
+    dicom_dir = str(payload.get("dicom_dir", "")).strip()
+    participant = str(payload.get("participant", "")).strip()
+    session = str(payload.get("session", "")).strip() or None
+    if not dicom_dir or not participant:
+        return JSONResponse({"error": "dicom_dir and participant are required"}, status_code=400)
+    if not Path(dicom_dir).is_dir():
+        return JSONResponse({"error": f"DICOM directory not found: {dicom_dir}"}, status_code=400)
+
+    config = str(payload.get("config", "")).strip()
+    if config:
+        config_path = Path(config)
+        if not config_path.is_file():
+            return JSONResponse({"error": f"Config not found: {config}"}, status_code=400)
+    else:
+        config_path = DATA_DIR / ".dcm2bids_config.json"
+        if not config_path.is_file():
+            write_default_config(config_path)
+
+    cmd = build_dcm2bids_command(
+        dicom_dir=str(Path(dicom_dir)), participant=participant,
+        output_dir=str(DATA_DIR), config=str(config_path), session=session,
+    )
+    asyncio.create_task(_run_ingest(cmd, participant))
+    return JSONResponse({"message": f"DICOM ingestion started for {participant}",
+                         "config": str(config_path)})
 
 
 @app.post("/api/reset")

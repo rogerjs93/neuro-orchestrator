@@ -772,6 +772,19 @@
     </div>
     <input type="file" id="file-input" accept=".zip">
 
+    <div class="stl-panel" id="ingest-panel">
+      <div class="stl-title">DICOM → BIDS</div>
+      <div class="stl-row">
+        <span class="stl-label">DICOM dir</span>
+        <input id="ing-dir" class="stl-select" placeholder="server path to a DICOM folder">
+      </div>
+      <div class="stl-row">
+        <span class="stl-label">Subject</span>
+        <input id="ing-sub" class="stl-select" placeholder="sub-01" style="max-width:120px">
+        <button class="stl-btn" onclick="ingestDicom()">INGEST</button>
+      </div>
+    </div>
+
     <div class="stl-panel" id="review-panel">
       <div class="stl-title">REVIEW GATES</div>
       <div class="stl-row">
@@ -1277,6 +1290,20 @@ function handleProgress(msg) {
   liveProgress[msg.subject_id] = msg.progress || {};
   lastActivity[msg.subject_id] = Date.now();
   refreshLive();
+}
+
+async function ingestDicom() {
+  const dicom_dir = document.getElementById('ing-dir').value.trim();
+  const participant = document.getElementById('ing-sub').value.trim();
+  if (!dicom_dir || !participant) { alert('Enter a DICOM directory and a subject id (e.g. sub-01).'); return; }
+  try {
+    const r = await fetch('/api/ingest/dicom', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dicom_dir, participant }),
+    });
+    const d = await r.json();
+    if (!r.ok) alert('Ingest: ' + (d.error || r.status));
+  } catch (e) { alert('Ingest failed: ' + e); }
 }
 
 function grpToggleMethod() {
