@@ -132,6 +132,32 @@ def test_fc_permutation_fwe_finds_planted_edge():
     assert {res["top_edges"][0]["i"], res["top_edges"][0]["j"]} == {0, 1}
 
 
+def test_fc_result_includes_symmetric_t_matrix():
+    rng = np.random.default_rng(5)
+    n, k = 18, 10
+
+    def rand_fc():
+        x = rng.normal(size=(n, n))
+        m = (x + x.T) / 2
+        np.fill_diagonal(m, 1.0)
+        return m
+
+    groups = {"A": [f"a{i}" for i in range(k)], "B": [f"b{i}" for i in range(k)]}
+    fc = {sid: rand_fc() for sid in groups["A"]}
+    for sid in groups["B"]:
+        m = rand_fc()
+        m[2, 5] = m[5, 2] = m[2, 5] + 6.0
+        fc[sid] = m
+
+    res = compare_fc_matrices(fc, groups, alpha=0.05)
+    assert res["n_nodes"] == n
+    tm = np.array(res["t_matrix"])
+    assert tm.shape == (n, n)
+    assert np.allclose(tm, tm.T)              # symmetric
+    assert np.allclose(np.diag(tm), 0.0)      # zero diagonal
+    assert [2, 5] in res["sig_edges"]
+
+
 def test_fc_requires_two_per_group():
     fc = {"a0": np.eye(5), "b0": np.eye(5)}
     with pytest.raises(ValueError):

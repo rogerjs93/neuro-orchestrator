@@ -1295,12 +1295,53 @@ function renderGroupResults(d) {
     }
   }
   const refs = (d.references || []).map(r => `<div class="grp-ref">${r}</div>`).join('');
+  const hasMatrix = d.kind === 'fc_matrix' && Array.isArray(d.t_matrix);
+  const heatmap = hasMatrix
+    ? '<div id="grp-heatmap"></div><div class="grp-ref">edge t-values · blue = lower in first group, red = higher</div>'
+    : '';
   res.innerHTML = `
     <div class="grp-head">${d.comparison} · <b>${d.n_significant}</b> significant (α=${d.alpha})${cov}</div>
     <div class="grp-method">${d.method}</div>
+    ${heatmap}
     <table class="grp-table">${rows}</table>
     ${refs}
     ${d.saved_as ? `<div class="grp-ref">saved: ${d.saved_as}</div>` : ''}`;
+  if (hasMatrix) {
+    const hm = document.getElementById('grp-heatmap');
+    if (hm) drawFCHeatmap(hm, d.t_matrix);
+  }
+}
+
+function grpDivColor(v) {
+  v = Math.max(-1, Math.min(1, v));
+  const bg = [22, 29, 33], pos = [194, 72, 63], neg = [59, 130, 196];
+  const c = v >= 0 ? pos : neg, t = Math.abs(v);
+  const mix = i => Math.round(bg[i] + (c[i] - bg[i]) * t);
+  return `rgb(${mix(0)},${mix(1)},${mix(2)})`;
+}
+
+function drawFCHeatmap(container, tmat) {
+  const n = tmat.length;
+  if (!n) return;
+  const cell = Math.max(1, Math.floor(320 / n));
+  const w = cell * n;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = w;
+  canvas.style.maxWidth = '100%';
+  canvas.style.border = '1px solid var(--border)';
+  canvas.style.imageRendering = 'pixelated';
+  const ctx = canvas.getContext('2d');
+  let mx = 0;
+  for (const row of tmat) for (const v of row) { const a = Math.abs(v); if (a > mx) mx = a; }
+  mx = mx || 1;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      ctx.fillStyle = grpDivColor(tmat[i][j] / mx);
+      ctx.fillRect(j * cell, i * cell, cell, cell);
+    }
+  }
+  container.innerHTML = '';
+  container.appendChild(canvas);
 }
 
 function renderPipeline() {

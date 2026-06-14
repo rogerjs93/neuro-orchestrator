@@ -262,6 +262,15 @@ def _compare_network_glm(metrics_by_subject, groups, alpha, covariates, cov_name
     }
 
 
+def _fc_matrix_payload(t, iu, n, sig_mask):
+    """Reconstruct a symmetric NxN t-matrix + the list of significant upper-tri edges."""
+    tm = np.zeros((n, n), dtype=float)
+    tm[iu[0], iu[1]] = t
+    tm[iu[1], iu[0]] = t
+    sig_edges = [[int(iu[0][k]), int(iu[1][k])] for k in np.where(sig_mask)[0]]
+    return {"n_nodes": int(n), "t_matrix": np.round(tm, 3).tolist(), "sig_edges": sig_edges}
+
+
 def _stack_fc(fc_by_subject, groups, a_label, b_label):
     """Return (subject_ids, group_indicator, edge_matrix, n_nodes, triu_indices)."""
     subjects: List[str] = []
@@ -315,7 +324,7 @@ def compare_fc_matrices(
         "p_fdr": float(q[e]), "significant": bool(sig[e]),
     } for e in order]
 
-    return {
+    result = {
         "kind": "fc_matrix",
         "method": "mass-univariate Welch t-test (scipy) — screening",
         "correction": correction,
@@ -327,6 +336,8 @@ def compare_fc_matrices(
         "n_significant": int(sig.sum()),
         "top_edges": top_edges,
     }
+    result.update(_fc_matrix_payload(t, iu, n, sig))
+    return result
 
 
 def compare_fc_permutation(
@@ -372,7 +383,7 @@ def compare_fc_permutation(
         "significant": bool(sig[e]),
     } for e in order]
 
-    return {
+    result = {
         "kind": "fc_matrix",
         "method": "permutation OLS, FWE max-statistic (Nilearn permuted_ols)",
         "correction": "FWE (max-stat permutation)",
@@ -387,6 +398,8 @@ def compare_fc_permutation(
         "n_significant": int(sig.sum()),
         "top_edges": top_edges,
     }
+    result.update(_fc_matrix_payload(t, iu, n, sig))
+    return result
 
 
 def groups_from_participants(data_dir: Path, column: str) -> Dict[str, List[str]]:
