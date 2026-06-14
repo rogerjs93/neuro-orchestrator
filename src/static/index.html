@@ -250,16 +250,16 @@
   }
   #drop-zone .dz-icon { font-size: 22px; }
   #drop-zone .dz-title {
-    font-size: 12px; color: var(--text); font-weight: 700; letter-spacing: .05em;
+    font-size: 13px; color: var(--text); font-weight: 500; letter-spacing: .02em;
   }
   #drop-zone .dz-sub {
-    font-size: 10px; color: var(--text-dim); margin-top: 3px;
+    font-size: 12px; color: var(--text-dim); margin-top: 3px;
   }
   #drop-zone .dz-loaded {
-    font-size: 11px; color: var(--teal); flex: 1;
+    font-size: 12px; color: var(--teal); flex: 1;
   }
   #drop-zone .dz-change {
-    font-size: 10px; color: var(--text-dim); text-decoration: underline; cursor: pointer;
+    font-size: 12px; color: var(--text-dim); text-decoration: underline; cursor: pointer;
   }
   #file-input { display: none; }
 
@@ -311,7 +311,7 @@
 
   .stl-label {
     color: var(--text-dim);
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .stl-adv {
@@ -327,9 +327,9 @@
     border: 1px solid var(--border);
     color: var(--text);
     font-family: var(--font-ui);
-    font-size: 10px;
-    padding: 5px 8px;
-    border-radius: 3px;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
     cursor: pointer;
   }
 
@@ -344,7 +344,7 @@
 
   .stl-note {
     color: var(--yellow);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.5;
     margin: 6px 0 8px;
     padding: 7px 8px;
@@ -531,11 +531,11 @@
     font-size: 9px; letter-spacing: .12em; color: var(--text-dim); font-weight: 400;
   }
   #log-filter-label {
-    font-size: 10px; color: var(--teal); flex: 1;
+    font-size: 12px; color: var(--teal); flex: 1;
   }
   .log-btn {
     background: transparent; border: none; cursor: pointer;
-    color: var(--text-dim); font-size: 10px; font-family: var(--font-ui);
+    color: var(--text-dim); font-size: 12px; font-family: var(--font-ui);
     padding: 2px 6px; transition: color .15s;
   }
   .log-btn:hover { color: var(--text); }
@@ -554,8 +554,8 @@
   }
   @keyframes fadein { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
   .log-line.hidden { display: none; }
-  .ll-time { color: var(--text-dim); flex-shrink: 0; font-size: 10px; }
-  .ll-sub  { color: var(--blue); flex-shrink: 0; min-width: 70px; font-size: 10px; }
+  .ll-time { color: var(--text-dim); flex-shrink: 0; font-size: 12px; }
+  .ll-sub  { color: var(--blue); flex-shrink: 0; min-width: 70px; font-size: 12px; }
   .ll-msg  { color: var(--text); word-break: break-word; }
 
   .log-line.level-stage .ll-msg  { color: var(--teal); font-weight: 500; letter-spacing: .04em; }
@@ -583,12 +583,12 @@
   :root {
     --ui-shadow-lg: 0 16px 44px rgba(0, 0, 0, 0.36);
     --ui-shadow-sm: 0 8px 20px rgba(0, 0, 0, 0.28);
-    --ctl-font-size: 10px;
-    --ctl-pad-y: 6px;
+    --ctl-font-size: 12px;
+    --ctl-pad-y: 7px;
     --ctl-pad-x: 10px;
-    --ctl-radius: 4px;
-    --ctl-min-h: 30px;
-    --chip-font-size: 9px;
+    --ctl-radius: 6px;
+    --ctl-min-h: 32px;
+    --chip-font-size: 11px;
     --chip-pad-y: 2px;
     --chip-pad-x: 6px;
     --chip-radius: 4px;
@@ -607,11 +607,10 @@
     --state-error-border: rgba(255, 79, 79, .90);
   }
 
+  /* Flat, instrument-like surfaces (DESIGN.md): no gradient glow, no drop
+     shadows, no blur — structure comes from the 1px borders. */
   body {
-    background:
-      radial-gradient(1100px 700px at 8% -12%, rgba(94, 184, 255, 0.28), transparent 55%),
-      radial-gradient(950px 680px at 96% 4%, rgba(0, 245, 192, 0.22), transparent 58%),
-      var(--bg);
+    background: var(--bg);
   }
 
   header,
@@ -619,12 +618,11 @@
   .stl-panel,
   #pipeline-wrap,
   #right {
-    box-shadow: var(--ui-shadow-sm);
     animation: ui-rise 320ms ease-out;
   }
 
   header {
-    backdrop-filter: blur(8px);
+    backdrop-filter: none;
   }
 
   #drop-zone,
@@ -1876,7 +1874,7 @@ function renderResults() {
       const selSummary = selLabel || (selGroupCount ? `${selGroupCount} groups` : 'n/a');
       return `<div style="margin-bottom:6px;">
         <a href="${a.url}" target="_blank">${a.name}</a>
-        <div style="font-size:10px;color:var(--text-dim);margin-top:2px;">
+        <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">
           preset=${preset} · faces=${faces} · vertices=${vertices} · mode=${mode} · ratio=${ratio} · mask=${selMode}:${selSummary}
         </div>
       </div>`;
