@@ -2,6 +2,11 @@
 
 TUI pipeline dashboard wrapping FSL, FastSurfer, fMRIPrep, MRtrix3, Nilearn, and BCT into a single monitored workflow. Built in Python ([Textual](https://github.com/Textualize/textual)) with a Rust/[tuie](https://github.com/jake-stewart/tuie) rewrite planned for v1.0.
 
+> ⚠️ **Research use only.** The wrapped tools are peer-reviewed, community-standard
+> *research* software — they are **not** clinically certified medical devices. This
+> project is for neuroimaging research and hypothesis testing, **not for diagnosis
+> or any clinical decision-making.**
+
 ```
 ┌─ neuro-orchestrator ──────────────────────────────────────────────────┐
 │  Subjects           │  Logs: sub-001 · FastSurfer                     │

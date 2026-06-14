@@ -74,6 +74,8 @@
   .grp-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-dim); }
   .grp-table tr.sig td { color: var(--teal); }
   .live-prog { font-size: 11px; color: var(--teal); font-family: var(--font-mono); margin-left: 6px; }
+  .ruo-badge { font-size: 10px; letter-spacing: .08em; color: var(--yellow);
+    border: 1px solid var(--yellow); border-radius: 4px; padding: 2px 7px; cursor: help; }
 
   /* ── Reset ─────────────────────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -725,6 +727,7 @@
 <!-- ── Header ──────────────────────────────────────────────────────────── -->
 <header>
   <div class="logo">⬡ NEURO<span>-ORCHESTRATOR</span></div>
+  <span class="ruo-badge" title="The wrapped tools are peer-reviewed research software, not clinically certified medical devices. For research and hypothesis testing only — not for diagnostic use.">RESEARCH USE ONLY</span>
   <div class="conn-dot" id="conn-dot"></div>
   <span id="conn-label">connecting…</span>
   <div id="mock-badge" class="badge-mock" style="display:none">MOCK</div>
