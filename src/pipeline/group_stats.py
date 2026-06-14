@@ -77,12 +77,66 @@ def _two_labels(groups: Mapping[str, Sequence[str]]) -> tuple[str, str]:
     return labels[0], labels[1]
 
 
+def _is_num(v: Any) -> bool:
+    return not isinstance(v, bool) and isinstance(v, (int, float)) and np.isfinite(v)
+
+
+def _covariate_names(covariates, hint):
+    if hint:
+        return list(hint)
+    if not covariates:
+        return []
+    names = set()
+    for cv in covariates.values():
+        for k, v in cv.items():
+            if _is_num(v):
+                names.add(k)
+    return sorted(names)
+
+
+def _has_all_covariates(sid, covariates, names):
+    cv = (covariates or {}).get(sid, {})
+    return all(_is_num(cv.get(nm)) for nm in names)
+
+
+def _filter_groups_for_covariates(groups, covariates, names):
+    """Keep only subjects that have every required covariate; report exclusions."""
+    if not names:
+        return groups, []
+    filtered, excluded = {}, []
+    for label, sids in groups.items():
+        kept = []
+        for sid in sids:
+            if _has_all_covariates(sid, covariates, names):
+                kept.append(sid)
+            else:
+                excluded.append(sid)
+        filtered[label] = kept
+    return filtered, excluded
+
+
+def _covariate_rows(subjects, covariates, names):
+    return np.asarray(
+        [[float(covariates[sid][nm]) for nm in names] for sid in subjects], dtype=float
+    ) if names else None
+
+
 def compare_network_metrics(
     metrics_by_subject: Mapping[str, Mapping[str, Any]],
     groups: Mapping[str, Sequence[str]],
     alpha: float = 0.05,
+    covariates: Mapping[str, Mapping[str, Any]] | None = None,
+    covariate_names: Sequence[str] | None = None,
 ) -> Dict[str, Any]:
-    """Two-group comparison of each scalar network metric, FDR-corrected across metrics."""
+    """Two-group comparison of each scalar network metric, FDR-corrected across metrics.
+
+    With covariates, each metric is tested via OLS (group effect adjusted for the
+    covariates); otherwise a Welch t-test is used.
+    """
+    cov_names = _covariate_names(covariates, covariate_names)
+    if cov_names:
+        return _compare_network_glm(metrics_by_subject, groups, alpha, covariates, cov_names)
+
     from scipy.stats import ttest_ind, mannwhitneyu
 
     a_label, b_label = _two_labels(groups)
@@ -140,6 +194,67 @@ def compare_network_metrics(
         "references": [REF_FDR],
         "comparison": f"{a_label} vs {b_label}",
         "groups": {a_label: len(groups[a_label]), b_label: len(groups[b_label])},
+        "alpha": alpha,
+        "n_metrics": len(rows),
+        "n_significant": sum(1 for r in rows if r.get("significant")),
+        "metrics": rows,
+    }
+
+
+def _compare_network_glm(metrics_by_subject, groups, alpha, covariates, cov_names):
+    """Per-metric OLS: test the group effect adjusting for covariates."""
+    import statsmodels.api as sm
+
+    a_label, b_label = _two_labels(groups)
+    fgroups, excluded = _filter_groups_for_covariates(groups, covariates, cov_names)
+    members = [(sid, 1.0) for sid in fgroups[a_label]] + [(sid, 0.0) for sid in fgroups[b_label]]
+
+    metric_keys = set()
+    for m in metrics_by_subject.values():
+        for k, v in m.items():
+            if _is_num(v):
+                metric_keys.add(k)
+
+    rows, pvals = [], []
+    min_n = len(cov_names) + 3  # intercept + group + covariates + slack
+    for metric in sorted(metric_keys):
+        sids, y, g = [], [], []
+        for sid, flag in members:
+            v = metrics_by_subject.get(sid, {}).get(metric)
+            if _is_num(v):
+                sids.append(sid); y.append(float(v)); g.append(flag)
+        n_a = int(sum(g)); n_b = len(g) - n_a
+        if len(sids) < min_n or n_a < 2 or n_b < 2:
+            continue
+        cov = _covariate_rows(sids, covariates, cov_names)
+        X = np.column_stack([np.ones(len(sids)), np.asarray(g, float), cov])
+        try:
+            model = sm.OLS(np.asarray(y, float), X).fit()
+        except Exception:
+            continue
+        rows.append({
+            "metric": metric, f"n_{a_label}": n_a, f"n_{b_label}": n_b,
+            "beta_group": round(float(model.params[1]), 6),
+            "t": round(float(model.tvalues[1]), 4), "p": float(model.pvalues[1]),
+        })
+        pvals.append(float(model.pvalues[1]))
+
+    correction = "none"
+    if pvals:
+        q, correction = _fdr(pvals, alpha)
+        for row, qi in zip(rows, q):
+            row["p_fdr"] = float(qi)
+            row["significant"] = bool(qi < alpha)
+
+    return {
+        "kind": "network_metrics",
+        "method": f"OLS group effect adjusted for covariates ({', '.join(cov_names)})",
+        "correction": correction,
+        "references": [REF_FDR],
+        "comparison": f"{a_label} vs {b_label}",
+        "groups": {a_label: len(fgroups[a_label]), b_label: len(fgroups[b_label])},
+        "covariates": list(cov_names),
+        "excluded_subjects": excluded,
         "alpha": alpha,
         "n_metrics": len(rows),
         "n_significant": sum(1 for r in rows if r.get("significant")),
@@ -221,15 +336,26 @@ def compare_fc_permutation(
     n_perm: int = 5000,
     top: int = 25,
     random_state: int = 0,
+    covariates: Mapping[str, Mapping[str, Any]] | None = None,
+    covariate_names: Sequence[str] | None = None,
 ) -> Dict[str, Any]:
-    """Rigorous edge-wise group test via Nilearn permutation OLS (FWE max-stat)."""
+    """Rigorous edge-wise group test via Nilearn permutation OLS (FWE max-stat).
+
+    Covariates are passed as confounding_vars so the group effect is tested while
+    adjusting for them.
+    """
     from nilearn.mass_univariate import permuted_ols
 
     a_label, b_label = _two_labels(groups)
-    subjects, indicator, edges, n, iu = _stack_fc(fc_by_subject, groups, a_label, b_label)
+    cov_names = _covariate_names(covariates, covariate_names)
+    work_groups, excluded = (
+        _filter_groups_for_covariates(groups, covariates, cov_names) if cov_names else (groups, [])
+    )
+    subjects, indicator, edges, n, iu = _stack_fc(fc_by_subject, work_groups, a_label, b_label)
+    confounds = _covariate_rows(subjects, covariates, cov_names) if cov_names else None
 
     out = permuted_ols(
-        indicator.reshape(-1, 1), edges,
+        indicator.reshape(-1, 1), edges, confounding_vars=confounds,
         n_perm=n_perm, two_sided_test=True, random_state=random_state,
         output_type="dict", verbose=0,
     )
@@ -253,6 +379,8 @@ def compare_fc_permutation(
         "references": [REF_FWE, REF_NILEARN],
         "comparison": f"{a_label} vs {b_label}",
         "groups": {a_label: int((indicator == 1.0).sum()), b_label: int((indicator == 0.0).sum())},
+        "covariates": list(cov_names),
+        "excluded_subjects": excluded,
         "alpha": alpha,
         "n_perm": int(n_perm),
         "n_edges": int(t.size),
@@ -278,3 +406,29 @@ def groups_from_participants(data_dir: Path, column: str) -> Dict[str, List[str]
                 continue
             groups.setdefault(value, []).append(sid)
     return groups
+
+
+def covariates_from_participants(data_dir: Path, columns: Sequence[str]) -> Dict[str, Dict[str, float]]:
+    """Read BIDS participants.tsv numeric covariate columns into {subject: {col: value}}."""
+    import csv
+
+    path = Path(data_dir) / "participants.tsv"
+    out: Dict[str, Dict[str, float]] = {}
+    if not path.is_file() or not columns:
+        return out
+    with open(path, newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        for row in reader:
+            sid = (row.get("participant_id") or row.get("participant") or "").strip()
+            if not sid:
+                continue
+            vals: Dict[str, float] = {}
+            for col in columns:
+                raw = (row.get(col) or "").strip()
+                try:
+                    vals[col] = float(raw)
+                except (TypeError, ValueError):
+                    continue
+            if vals:
+                out[sid] = vals
+    return out

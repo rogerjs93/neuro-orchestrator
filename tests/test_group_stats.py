@@ -52,6 +52,31 @@ def test_network_metrics_detects_real_difference_only():
     assert res["n_significant"] == 1
 
 
+def test_network_metrics_covariate_adjustment_removes_confound():
+    # A confound (age) drives the metric; group has NO true effect once age is
+    # controlled. Unadjusted sees a spurious difference; adjusted should not.
+    rng = np.random.default_rng(7)
+    groups = {"A": [f"a{i}" for i in range(20)], "B": [f"b{i}" for i in range(20)]}
+    metrics, covariates = {}, {}
+    # Group A older than B; metric depends only on age, not group.
+    for sid in groups["A"]:
+        age = rng.uniform(60, 70)
+        metrics[sid] = {"x": 2.0 * age + rng.normal(0, 1)}
+        covariates[sid] = {"age": age}
+    for sid in groups["B"]:
+        age = rng.uniform(20, 30)
+        metrics[sid] = {"x": 2.0 * age + rng.normal(0, 1)}
+        covariates[sid] = {"age": age}
+
+    unadj = compare_network_metrics(metrics, groups, alpha=0.05)
+    adj = compare_network_metrics(metrics, groups, alpha=0.05, covariates=covariates)
+
+    assert unadj["metrics"][0]["significant"] is True            # spurious group effect
+    assert "OLS" in adj["method"] and "age" in adj["method"]
+    assert adj["metrics"][0]["significant"] is False             # confound removed
+    assert adj["covariates"] == ["age"]
+
+
 def test_network_metrics_requires_two_groups():
     with pytest.raises(ValueError):
         compare_network_metrics({}, {"only": ["sub-1"]})

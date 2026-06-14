@@ -36,6 +36,7 @@ from pipeline.group_stats import (
     compare_fc_matrices,
     compare_fc_permutation,
     groups_from_participants,
+    covariates_from_participants,
 )
 from utils.bids import scan_bids_dataset
 
@@ -1465,6 +1466,15 @@ async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONRes
             status_code=400,
         )
 
+    # Covariates: inline {subject: {name: value}}, or read columns from participants.tsv.
+    covariates = payload.get("covariates")
+    cov_columns = payload.get("covariate_columns") or payload.get("covariates_columns")
+    if not covariates and cov_columns:
+        cols = cov_columns if isinstance(cov_columns, list) else [c.strip() for c in str(cov_columns).split(",")]
+        covariates = covariates_from_participants(DATA_DIR, [c for c in cols if c])
+    if not isinstance(covariates, dict):
+        covariates = None
+
     manifest.load()
     try:
         if target in ("network", "network_metrics"):
@@ -1477,7 +1487,7 @@ async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONRes
                             metrics_by_subject[sid] = json.loads(path.read_text(encoding="utf-8"))
                         except Exception:
                             pass
-            result = compare_network_metrics(metrics_by_subject, groups, alpha=alpha)
+            result = compare_network_metrics(metrics_by_subject, groups, alpha=alpha, covariates=covariates)
         elif target in ("fc", "fc_matrix"):
             fc_by_subject: Dict[str, Any] = {}
             for sids in groups.values():
@@ -1496,7 +1506,7 @@ async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONRes
                     n_perm = int(payload.get("n_perm", 5000))
                 except (TypeError, ValueError):
                     n_perm = 5000
-                result = compare_fc_permutation(fc_by_subject, groups, alpha=alpha, n_perm=n_perm)
+                result = compare_fc_permutation(fc_by_subject, groups, alpha=alpha, n_perm=n_perm, covariates=covariates)
         else:
             return JSONResponse({"error": "target must be 'network' or 'fc'"}, status_code=400)
     except ValueError as exc:

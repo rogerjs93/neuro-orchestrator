@@ -62,6 +62,17 @@
   .gate-btn.skip { border-color: var(--red); color: var(--red); }
   .stage-box.rerunnable { cursor: pointer; }
   .stage-box.rerunnable:hover { outline: 1px solid var(--teal); outline-offset: 1px; }
+  #group-results { margin-top: 8px; }
+  .grp-msg { font-size: 12px; color: var(--text-dim); padding: 6px 0; }
+  .grp-msg.warn { color: var(--yellow); }
+  .grp-head { font-size: 13px; color: var(--text); margin-top: 6px; }
+  .grp-head b { color: var(--teal); font-weight: 500; }
+  .grp-method { font-size: 11px; color: var(--text-dim); margin: 3px 0; }
+  .grp-ref { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .grp-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; font-family: var(--font-mono); }
+  .grp-table th { text-align: left; color: var(--text-dim); font-weight: 500; border-bottom: 1px solid var(--border); padding: 4px 6px; }
+  .grp-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-dim); }
+  .grp-table tr.sig td { color: var(--teal); }
 
   /* ── Reset ─────────────────────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -773,6 +784,35 @@
       </div>
     </div>
 
+    <div class="stl-panel" id="group-panel">
+      <div class="stl-title">GROUP ANALYSIS</div>
+      <div class="stl-row">
+        <span class="stl-label">Group by</span>
+        <input id="grp-column" class="stl-select" placeholder="participants.tsv column (e.g. group)">
+      </div>
+      <div class="stl-row">
+        <span class="stl-label">Target</span>
+        <select id="grp-target" class="stl-select" onchange="grpToggleMethod()">
+          <option value="network">Network metrics</option>
+          <option value="fc">Connectivity (FC)</option>
+        </select>
+        <select id="grp-method" class="stl-select" style="display:none">
+          <option value="permutation">Permutation (FWE)</option>
+          <option value="screen">Mass-univariate (FDR)</option>
+        </select>
+      </div>
+      <div class="stl-row">
+        <span class="stl-label">Covariates</span>
+        <input id="grp-cov" class="stl-select" placeholder="optional, comma-sep (e.g. age,sex)">
+      </div>
+      <div class="stl-row">
+        <span class="stl-label">Alpha</span>
+        <input id="grp-alpha" class="stl-select" value="0.05" style="max-width:80px">
+        <button class="stl-btn" onclick="runGroupStats()">RUN ANALYSIS</button>
+      </div>
+      <div id="group-results"></div>
+    </div>
+
     <div class="stl-panel">
       <div class="stl-title">STL GENERATION</div>
       <div class="stl-row">
@@ -1197,6 +1237,70 @@ async function rerunFrom(subject, stage) {
     });
     if (!r.ok) { const e = await r.json().catch(() => ({})); alert('Reprocess failed: ' + (e.error || r.status)); }
   } catch (err) { alert('Reprocess request failed: ' + err); }
+}
+
+function grpToggleMethod() {
+  const t = document.getElementById('grp-target').value;
+  document.getElementById('grp-method').style.display = t === 'fc' ? '' : 'none';
+}
+
+function grpFmtP(p) {
+  if (p == null || isNaN(p)) return '—';
+  return p < 0.001 ? Number(p).toExponential(1) : Number(p).toFixed(3);
+}
+
+async function runGroupStats() {
+  const column = document.getElementById('grp-column').value.trim();
+  const target = document.getElementById('grp-target').value;
+  const method = document.getElementById('grp-method').value;
+  const covRaw = document.getElementById('grp-cov').value.trim();
+  const alpha = parseFloat(document.getElementById('grp-alpha').value) || 0.05;
+  const res = document.getElementById('group-results');
+  if (!column) {
+    res.innerHTML = '<div class="grp-msg warn">Enter a participants.tsv column to group by (it needs two values).</div>';
+    return;
+  }
+  const body = { target, alpha, participants_column: column };
+  if (target === 'fc') body.method = method;
+  if (covRaw) body.covariate_columns = covRaw.split(',').map(s => s.trim()).filter(Boolean);
+  const slow = target === 'fc' && method === 'permutation';
+  res.innerHTML = `<div class="grp-msg">Running ${slow ? 'permutation test — this can take a moment…' : 'analysis…'}</div>`;
+  try {
+    const r = await fetch('/api/group-stats', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) { res.innerHTML = `<div class="grp-msg warn">${data.error || ('Error ' + r.status)}</div>`; return; }
+    renderGroupResults(data);
+  } catch (err) {
+    res.innerHTML = `<div class="grp-msg warn">Request failed: ${err}</div>`;
+  }
+}
+
+function renderGroupResults(d) {
+  const res = document.getElementById('group-results');
+  const cov = (d.covariates && d.covariates.length) ? ` · adjusted for ${d.covariates.join(', ')}` : '';
+  let rows = '';
+  if (d.kind === 'network_metrics') {
+    rows = '<tr><th>metric</th><th>t</th><th>p</th><th>p(fdr)</th><th></th></tr>';
+    for (const m of (d.metrics || [])) {
+      rows += `<tr class="${m.significant ? 'sig' : ''}"><td>${m.metric}</td><td>${m.t != null ? m.t.toFixed(2) : '—'}</td><td>${grpFmtP(m.p)}</td><td>${grpFmtP(m.p_fdr)}</td><td>${m.significant ? '✓' : ''}</td></tr>`;
+    }
+  } else {
+    const edges = d.top_edges || [];
+    const pk = edges[0] && ('p_fwe' in edges[0]) ? 'p_fwe' : 'p_fdr';
+    rows = `<tr><th>edge</th><th>t</th><th>${pk}</th><th></th></tr>`;
+    for (const e of edges) {
+      rows += `<tr class="${e.significant ? 'sig' : ''}"><td>${e.i}–${e.j}</td><td>${e.t.toFixed(2)}</td><td>${grpFmtP(e[pk])}</td><td>${e.significant ? '✓' : ''}</td></tr>`;
+    }
+  }
+  const refs = (d.references || []).map(r => `<div class="grp-ref">${r}</div>`).join('');
+  res.innerHTML = `
+    <div class="grp-head">${d.comparison} · <b>${d.n_significant}</b> significant (α=${d.alpha})${cov}</div>
+    <div class="grp-method">${d.method}</div>
+    <table class="grp-table">${rows}</table>
+    ${refs}
+    ${d.saved_as ? `<div class="grp-ref">saved: ${d.saved_as}</div>` : ''}`;
 }
 
 function renderPipeline() {
