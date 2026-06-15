@@ -465,6 +465,7 @@
     const sliceBuf = {};          // canvasId -> {ctx,img,anatomy,width,height} for optimistic brush stamps
     let anatomyCacheKey = null;   // anatomy is static per slice index — cache to skip refetch while painting
     let anatomyCacheVal = null;
+    let deferredRefreshTimer = null;  // coalesce authoritative re-renders during rapid strokes
     let strokeSession = null;
     let pendingStrokeRetryOps = null;
 
@@ -736,7 +737,7 @@
       const data = await apiPost(`/api/mask/version/${encodeURIComponent(subjectId)}`, payload);
       log(`Stroke saved ${data.version.version_id}: ${data.version.operation_summary}`, 'ok');
       await loadCatalog(false);
-      await activateVersion(data.version.version_id, { recordHistory: true });
+      await activateVersion(data.version.version_id, { recordHistory: true, deferRefresh: true });
       pendingStrokeRetryOps = null;
     }
 
@@ -890,6 +891,17 @@
       await refreshOrthoview();
     }
 
+    // After a stroke the optimistic paint already shows the result, so the
+    // expensive authoritative 3-plane re-render is coalesced to fire once the
+    // user pauses, instead of on every stroke.
+    function scheduleDeferredRefresh() {
+      if (deferredRefreshTimer) clearTimeout(deferredRefreshTimer);
+      deferredRefreshTimer = setTimeout(() => {
+        deferredRefreshTimer = null;
+        refreshAllSlices().catch((err) => log(String(err), 'err'));
+      }, 350);
+    }
+
     async function activateVersion(versionId, opts = {}) {
       if (!versionId) return;
       const recordHistory = opts.recordHistory !== false;
@@ -903,7 +915,11 @@
       document.getElementById('c-x').value = String(Math.floor((activeShape[2] || 1) / 2));
       updateSliceSliders();
       renderVersions();
-      await refreshAllSlices();
+      if (opts.deferRefresh) {
+        scheduleDeferredRefresh();   // optimistic paint already shows it; reconcile on pause
+      } else {
+        await refreshAllSlices();
+      }
       if (recordHistory) {
         recordVersionHistory(versionId);
       }
