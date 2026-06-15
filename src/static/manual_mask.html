@@ -462,6 +462,9 @@
     let orthoviewRefreshTimer = null;
     let anatomyOpacity = 0.55;
     let strokeMode = null;
+    const sliceBuf = {};          // canvasId -> {ctx,img,anatomy,width,height} for optimistic brush stamps
+    let anatomyCacheKey = null;   // anatomy is static per slice index — cache to skip refetch while painting
+    let anatomyCacheVal = null;
     let strokeSession = null;
     let pendingStrokeRetryOps = null;
 
@@ -792,6 +795,45 @@
         img.data[p + 3] = 255;
       }
       ctx.putImageData(img, 0, 0);
+      sliceBuf[canvasId] = { ctx, img, anatomy: anatomyData, width, height };
+    }
+
+    function canvasPixelFromEvent(canvas, ev) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        px: Math.round((ev.clientX - rect.left) * (canvas.width / Math.max(1, rect.width))),
+        py: Math.round((ev.clientY - rect.top) * (canvas.height / Math.max(1, rect.height))),
+      };
+    }
+
+    // Optimistic local brush: paint/erase a disc straight onto the displayed slice
+    // (only the brush's bounding box) so editing feels instant; the server commit
+    // on stroke-end re-renders the authoritative slice.
+    function stampBrush(plane, px, py, radius, erase) {
+      const buf = sliceBuf[`${plane}-canvas`];
+      if (!buf) return;
+      const { ctx, img, anatomy, width, height } = buf;
+      const a = Math.max(0, Math.min(1, anatomyOpacity));
+      const r = Math.max(1, radius);
+      const x0 = Math.max(0, px - r), x1 = Math.min(width - 1, px + r);
+      const y0 = Math.max(0, py - r), y1 = Math.min(height - 1, py + r);
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const dx = x - px, dy = y - py;
+          if (dx * dx + dy * dy > r * r) continue;
+          const i = y * width + x, p = i * 4;
+          const base = Math.max(0, Math.min(255, anatomy && i < anatomy.length ? Number(anatomy[i]) : 18));
+          if (erase) {
+            img.data[p] = base; img.data[p + 1] = base; img.data[p + 2] = base;
+          } else {
+            img.data[p] = Math.round(135 * a + base * (1 - a));
+            img.data[p + 1] = Math.round(220 * a + base * (1 - a));
+            img.data[p + 2] = Math.round(255 * a + base * (1 - a));
+          }
+          img.data[p + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
     }
 
     function applySlicePayload(plane, data, anatomy) {
@@ -818,7 +860,13 @@
         + `?axial=${sliceState.axial}&coronal=${sliceState.coronal}&sagittal=${sliceState.sagittal}`;
       const anatomyUrl = `/api/mask/anatomy/${encodeURIComponent(subjectId)}`
         + `?axial=${sliceState.axial}&coronal=${sliceState.coronal}&sagittal=${sliceState.sagittal}`;
-      const [data, anatomy] = await Promise.all([apiGet(url), apiGet(anatomyUrl)]);
+      // Anatomy is static per slice index — reuse it while only the mask changes
+      // (the common case while painting), so a stroke doesn't refetch the underlay.
+      const animKey = `${sliceState.axial}:${sliceState.coronal}:${sliceState.sagittal}`;
+      const anatomyPromise = (anatomyCacheKey === animKey && anatomyCacheVal)
+        ? Promise.resolve(anatomyCacheVal)
+        : apiGet(anatomyUrl).then((a) => { anatomyCacheKey = animKey; anatomyCacheVal = a; return a; });
+      const [data, anatomy] = await Promise.all([apiGet(url), anatomyPromise]);
       applySlicePayload('axial', data.axial, anatomy.axial);
       applySlicePayload('coronal', data.coronal, anatomy.coronal);
       applySlicePayload('sagittal', data.sagittal, anatomy.sagittal);
@@ -1013,6 +1061,8 @@
             ops: [],
           };
           appendInterpolatedStrokeOps(strokeSession.ops, center, center, strokeMode, radius);
+          const d = canvasPixelFromEvent(canvas, ev);
+          stampBrush(plane, d.px, d.py, radius, strokeMode === 'erase');
         });
 
         canvas.addEventListener('pointermove', (ev) => {
@@ -1027,6 +1077,8 @@
             strokeSession.radius,
           );
           strokeSession.lastCenter = center;
+          const d = canvasPixelFromEvent(canvas, ev);
+          stampBrush(plane, d.px, d.py, strokeSession.radius, strokeSession.opType === 'erase');
         });
 
         const endStroke = async (ev) => {
