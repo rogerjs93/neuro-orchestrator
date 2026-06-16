@@ -1,0 +1,34 @@
+name: performance
+title: Performance / responsiveness reviewer
+mission: Instant feedback, no blocking work, lean payloads, coalesced expensive work.
+scope:
+  owns: [interaction latency, payload sizes, caching, debouncing, disk/IO churn, render cost]
+  not: [visual correctness (ui), statistical cost tradeoffs (statistics-research)]
+inspect:
+  paths:
+    - src/static/manual_mask.html
+    - src/web_server.py   # slice/orthoview endpoints, broadcasts, version writes
+  globs: ["src/static/**/*.html", "src/web_server.py"]
+references:
+  - "Optimistic UI; debounce/coalesce; PNG vs JSON pixel transport"
+checks:
+  - id: instant-feedback
+    check: Interactions render locally first; authoritative work is async/debounced.
+    severity: high
+  - id: cache-static
+    check: Unchanging data (anatomy underlay) cached, not refetched per interaction.
+    severity: medium
+  - id: lean-payloads
+    check: Pixel data shipped as PNG/binary, not JSON int arrays.
+    severity: medium
+  - id: no-per-edit-disk
+    check: No NIfTI/version written per micro-edit; persistence batched/deferred.
+    severity: medium
+  - id: bounded-broadcasts
+    check: Progress/log broadcasts are throttled, not one snapshot per line.
+    severity: low
+tools:
+  - "grep -n 'data:' src/web_server.py"
+deliverable: Findings ranked by user-perceived latency, each with the cheapest effective fix.
+done_when:
+  - Mask editing feels instant; static data cached; pixel transport not JSON arrays.

@@ -1,0 +1,39 @@
+name: ux
+title: UX / usability / accessibility reviewer
+mission: Make the workflows simple and legible for researchers and clinicians alike.
+scope:
+  owns: [interaction flows, information hierarchy, accessibility, plain language, defaults]
+  not: [pixel-level visual styling (ui), statistical correctness (statistics-research)]
+inspect:
+  paths:
+    - src/static/index.html
+    - src/static/manual_mask.html
+    - PRODUCT.md
+  globs: ["src/static/**/*.html"]
+references:
+  - "PRODUCT.md (users, design principles, accessibility bar)"
+  - "WCAG 2.1 AA"
+checks:
+  - id: primary-task-obvious
+    check: Each screen's primary action is clear; next step is signposted.
+    severity: high
+  - id: clinician-no-cli
+    check: A non-CLI clinician can ingest data, run, review, and get a result.
+    severity: high
+  - id: keyboard-and-focus
+    check: Run/review/approve path is keyboard-operable with visible focus.
+    severity: high
+  - id: reduced-motion
+    check: prefers-reduced-motion is honored.
+    severity: medium
+  - id: control-load
+    check: Screens expose 2-3 primary actions; advanced controls are collapsed.
+    severity: medium
+  - id: feedback
+    check: Long actions show progress + heartbeat; outcomes show success/concern.
+    severity: medium
+tools: []
+deliverable: Friction points per named flow (ingest, run, gate, editor, group analysis) with simplifications.
+done_when:
+  - A first-time clinician completes ingest->run->review->result without docs.
+  - Keyboard + reduced-motion + contrast pass on the core flow.

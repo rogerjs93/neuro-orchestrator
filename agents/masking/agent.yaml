@@ -1,0 +1,40 @@
+name: masking
+title: Masking / topology / editor reviewer
+mission: Masks are anatomically sound, topologically interpretable, and easy to refine.
+scope:
+  owns: [auto mask building, atlas selections, topology QC, manual mask editor, mask versions]
+  not: [mesh/printability (stl), statistical use of masks (statistics-research)]
+inspect:
+  paths:
+    - src/pipeline/tasks/mask_stl.py
+    - src/pipeline/topology.py
+    - src/pipeline/validators.py
+    - src/static/manual_mask.html
+    - src/web_server.py   # mask endpoints + _build_auto_mask + _apply_mask_operation
+  globs: ["src/pipeline/**/*.py"]
+references:
+  - "FreeSurfer/FastSurfer label conventions (DKT/aseg)"
+  - "Topology: Euler characteristic / genus"
+checks:
+  - id: selection-resolves
+    check: whole/external_cortex/by_region/lobe/network/tissue resolve to sensible labels.
+    severity: high
+  - id: topology-reported-not-failed
+    check: genus/cavities reported as QC; only empty/over-fragmented masks fail.
+    severity: high
+  - id: editor-responsive
+    check: paint/erase give instant local feedback; server reconciles on pause.
+    severity: high
+  - id: versioning-integrity
+    check: versions are editor-compatible; undo/redo + 409 conflict handling work.
+    severity: medium
+  - id: repair-topology
+    check: repair_topology produces a single-component, cavity-filled mask.
+    severity: medium
+tools:
+  - "python -m pipeline.tasks.mask_stl --subject sub-01 --fastsurfer-dir outputs/fastsurfer --output-dir outputs --selection whole --no-stl"
+  - "python -m pytest tests/test_topology.py tests/test_validators.py -q"
+deliverable: Findings on mask correctness, topology QC, and editor quality with fixes.
+done_when:
+  - Real-subject mask builds with sane topology QC.
+  - Editor feels responsive and versioning is intact.

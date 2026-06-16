@@ -1,0 +1,39 @@
+name: clinical
+title: Clinical-research safety / framing / privacy reviewer
+mission: Honest research-use framing, provenance, and data privacy — no medical-device overclaim.
+scope:
+  owns: [research-use-only framing, copy claims, provenance/audit, data privacy, human-in-the-loop QC]
+  not: [statistical method correctness (statistics-research), tool internals (pipeline-tools)]
+inspect:
+  paths:
+    - PRODUCT.md
+    - README.md
+    - .gitignore
+    - src/static/index.html
+    - src/web_server.py   # gate audit trail
+  globs: ["**/*.md", "src/static/*.html"]
+references:
+  - "Tools are research-use-only (fMRIPrep/MRIQC/FreeSurfer/FastSurfer disclaimers)"
+  - "Research-data-handling / privacy basics"
+checks:
+  - id: research-use-only
+    check: Persistent, accurate research-use-only disclaimer (UI + README).
+    severity: high
+  - id: no-overclaim
+    check: No copy implies diagnosis/clinical decisions ("diagnose", "clinical-grade").
+    severity: high
+  - id: privacy
+    check: data/, outputs/, licenses/ gitignored; no PHI or FS license committed.
+    severity: high
+  - id: audit-trail
+    check: Gate decisions log operator + note + timestamp + version.
+    severity: medium
+  - id: provenance
+    check: Results record tool version/digest, params, and hashes.
+    severity: medium
+tools:
+  - "git ls-files data outputs licenses"
+  - "grep -rniE 'diagnos|clinical-grade|medical device|detect disease' README.md src/static PRODUCT.md"
+deliverable: Findings on framing, safety, provenance, and privacy with exact copy/file fixes.
+done_when:
+  - Disclaimer present; no overclaiming copy; no PHI/license in VCS; audit + provenance recorded.

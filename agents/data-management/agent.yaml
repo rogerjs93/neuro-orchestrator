@@ -1,0 +1,43 @@
+name: data-management
+title: Data management / provenance / ingestion reviewer
+mission: Artifacts are role-discoverable, provenance-tracked, validated, BIDS-Derivatives stored; DICOM ingestion sound.
+scope:
+  owns: [artifact manifest, role resolution, adapters, validators, BIDS-derivatives layout, DICOM ingest, checkpoint/resume]
+  not: [tool invocation (pipeline-tools), statistical methods (statistics-research)]
+inspect:
+  paths:
+    - src/pipeline/manifest.py
+    - src/pipeline/adapters.py
+    - src/pipeline/validators.py
+    - src/pipeline/ingest.py
+    - src/pipeline/persistence.py
+    - src/utils/bids.py
+  globs: ["src/pipeline/**/*.py"]
+references:
+  - "BIDS + BIDS-Derivatives spec"
+  - "dcm2bids (Bore et al. 2023)"
+checks:
+  - id: resolve-by-role-everywhere
+    check: All consumers use manifest resolve(role); no tool-filename globs remain.
+    severity: high
+  - id: provenance-edges
+    check: Registered artifacts carry correct input-hash provenance edges.
+    severity: high
+  - id: bids-derivatives-layout
+    check: Outputs move toward outputs/derivatives with entities + dataset_description GeneratedBy.
+    severity: medium
+  - id: validators-record-qc
+    check: Per-stage validators write real QC + valid into the manifest.
+    severity: medium
+  - id: staleness-cascade
+    check: is_stale detects upstream change; reprocess cascade marks downstream.
+    severity: medium
+  - id: ingest-robust
+    check: dcm2bids command + default config valid; messy participants.tsv handled.
+    severity: medium
+tools:
+  - "python -m pytest tests/test_manifest.py tests/test_adapters.py tests/test_ingest.py -q"
+deliverable: Findings on artifact tracking, provenance, validation, layout, and ingestion with fixes.
+done_when:
+  - No consumer resolves artifacts by tool filename.
+  - Outputs are BIDS-Derivatives with provenance + digests.

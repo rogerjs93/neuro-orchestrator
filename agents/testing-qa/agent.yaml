@@ -1,0 +1,38 @@
+name: testing-qa
+title: Testing / QA / CI reviewer
+mission: Behavior is protected by meaningful tests; regressions are caught; the suite stays green.
+scope:
+  owns: [test coverage, test quality, integration tests, CI]
+  not: [the correctness standards themselves (each domain agent owns those)]
+inspect:
+  paths:
+    - tests/
+    - pytest.ini
+    - requirements-dev.txt
+  globs: ["tests/**/*.py", "src/pipeline/**/*.py"]
+references:
+  - "pytest; FastAPI TestClient"
+checks:
+  - id: suite-green
+    check: Full suite passes from the project root.
+    severity: high
+  - id: coverage-map
+    check: Every module with logic has at least one behavioral test.
+    severity: high
+  - id: behavioral-asserts
+    check: Tests assert outcomes (effects/guards), not just absence of exceptions.
+    severity: medium
+  - id: integration-skips-cleanly
+    check: Real-data tests run when data present and skip otherwise.
+    severity: medium
+  - id: deterministic
+    check: No unseeded randomness or order/time dependence.
+    severity: medium
+  - id: ci
+    check: A CI workflow runs pytest (+ detector) on push/PR.
+    severity: medium
+tools:
+  - "python -m pytest -q"
+deliverable: Coverage gap list (module -> missing tests) + CI recommendation, prioritized.
+done_when:
+  - Suite green; no logic module untested; CI runs pytest on PR.

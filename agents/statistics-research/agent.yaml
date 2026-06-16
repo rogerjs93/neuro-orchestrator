@@ -1,0 +1,39 @@
+name: statistics-research
+title: Statistics / hypothesis-testing reviewer
+mission: Group analysis is statistically sound, corrected, reproducible, and citeable.
+scope:
+  owns: [group comparisons, multiple-comparison correction, effect sizes, covariates, NBS/permutation, reproducibility]
+  not: [per-subject pipeline correctness (pipeline-tools), UI of results (ui/ux)]
+inspect:
+  paths:
+    - src/pipeline/group_stats.py
+    - tests/test_group_stats.py
+  globs: ["src/pipeline/group_stats.py"]
+references:
+  - "Benjamini-Hochberg 1995 (FDR)"
+  - "Winkler et al. 2014 (permutation/FWE)"
+  - "Zalesky et al. 2010 (NBS)"
+checks:
+  - id: corrected-inference
+    check: Every mass test is FDR/FWE-corrected; method + citation recorded.
+    severity: high
+  - id: peer-reviewed-tools
+    check: Uses scipy/statsmodels/nilearn/bctpy; no MATLAB; no hand-rolled stats passed off as validated.
+    severity: high
+  - id: covariates
+    check: Covariate adjustment (OLS / confounding_vars) correct; missing-covariate subjects excluded+reported.
+    severity: medium
+  - id: nbs-soundness
+    check: NBS uses a sensible primary threshold and reports subnetwork-level FWER.
+    severity: medium
+  - id: reproducible
+    check: Deterministic seeds, recorded params, results persisted.
+    severity: medium
+  - id: guards
+    check: Two-group requirement, >=2/group, zero-variance handled.
+    severity: medium
+tools:
+  - "python -m pytest tests/test_group_stats.py -q"
+deliverable: Findings on statistical validity, correction, covariates, and reproducibility with fixes.
+done_when:
+  - All methods corrected + cited; tests recover planted effects and reject nulls.

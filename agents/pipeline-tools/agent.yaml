@@ -1,0 +1,39 @@
+name: pipeline-tools
+title: Pipeline tools / reproducibility reviewer
+mission: Wrapped neuro tools are invoked correctly, reproducibly, and swappably (OSS only).
+scope:
+  owns: [docker stage commands, tool args/mounts/flags, image pinning, tool selection, failure handling]
+  not: [the Python analysis stages' statistics (statistics-research), artifact ledger (data-management)]
+inspect:
+  paths:
+    - src/pipeline/runner.py
+    - config/pipeline.yaml
+    - docker-compose.yml
+    - src/pipeline/tasks/connectivity.py
+    - src/pipeline/tasks/network.py
+  globs: ["src/pipeline/**/*.py"]
+references:
+  - "BIDS Apps conventions"
+  - "Tool CLIs: MRIQC, FastSurfer, fMRIPrep, MRtrix3, Nilearn, BCT"
+checks:
+  - id: correct-invocation
+    check: Each stage's args/mounts/resource flags match the tool's CLI.
+    severity: high
+  - id: digest-pinning
+    check: Images pinned by digest, not ':latest'.
+    severity: high
+  - id: resolve-by-role
+    check: Downstream stage inputs resolved via manifest roles, not tool filenames.
+    severity: medium
+  - id: oss-only
+    check: No proprietary (MATLAB) deps; tools are peer-reviewed OSS.
+    severity: high
+  - id: robust-failure
+    check: Preflight + GPU/CPU fallback + OOM guidance + clear errors present.
+    severity: medium
+tools:
+  - "grep -n ':latest' config/pipeline.yaml docker-compose.yml src/pipeline/runner.py"
+deliverable: Findings on invocation correctness, reproducibility, and swappability with fixes.
+done_when:
+  - No ':latest' in active stage commands (digests pinned).
+  - Stage inputs resolve by role; invocations match tool CLIs.

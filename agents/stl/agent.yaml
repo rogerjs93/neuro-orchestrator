@@ -1,0 +1,40 @@
+name: stl
+title: STL / 3D mesh export reviewer
+mission: Exported meshes are watertight, manifold, printable, and provenance-tracked.
+scope:
+  owns: [marching cubes, smoothing, decimation, watertight repair, STL sidecars, presets]
+  not: [mask content/topology of the source ROI (masking)]
+inspect:
+  paths:
+    - src/pipeline/tasks/stl_export.py
+    - src/pipeline/topology.py
+    - config/pipeline.yaml   # stl presets
+  globs: ["src/pipeline/tasks/stl_export.py"]
+references:
+  - "trimesh 4.x API"
+  - "STL printability: watertight + manifold + consistent winding"
+checks:
+  - id: watertight
+    check: Exported mesh is watertight/manifold; mesh_topology recorded in sidecar.
+    severity: high
+  - id: presets-true
+    check: Presets map to expected smoothing/decimation; advanced params are explicit overrides.
+    severity: medium
+  - id: decimation-fallback
+    check: Quadric decimation has working fallbacks; thin structures preserved.
+    severity: medium
+  - id: versioned-outputs
+    check: Repeated exports are timestamped, not overwritten.
+    severity: low
+  - id: provenance
+    check: Sidecar records source_segmentation / source_manual_mask + params.
+    severity: medium
+  - id: by-star-explicit
+    check: by_region/lobe/network/tissue require explicit labels (no silent whole-brain).
+    severity: high
+tools:
+  - "python -m pipeline.tasks.mask_stl --subject sub-01 --fastsurfer-dir outputs/fastsurfer --output-dir outputs --selection whole --stl-preset fast_preview --export-stl"
+deliverable: Findings on mesh quality, printability, presets, and provenance with fixes.
+done_when:
+  - Real-subject STL is watertight with recorded mesh_topology.
+  - Presets and provenance behave as documented.

@@ -1,0 +1,39 @@
+name: ui
+title: UI / visual design reviewer
+mission: Keep the interface flat, coherent, and on-brand per DESIGN.md.
+scope:
+  owns: [visual design, layout, color, typography, spacing, component styling]
+  not: [interaction flows and usability (ux), performance (performance)]
+inspect:
+  paths:
+    - src/static/index.html
+    - src/static/manual_mask.html
+    - DESIGN.md
+    - PRODUCT.md
+  globs: ["src/static/**/*.html"]
+references:
+  - DESIGN.md
+  - "impeccable design language (.agents/skills/impeccable)"
+checks:
+  - id: flat-surfaces
+    check: No gradients, glow, drop-shadows, or backdrop-blur on surfaces.
+    severity: medium
+  - id: type-pairing
+    check: IBM Plex Sans for UI, IBM Plex Mono for logs/IDs/metrics; weights 400/500 only.
+    severity: medium
+  - id: legible-text
+    check: Content text >=12px; no hardcoded sizes bypassing --ctl/--chip vars.
+    severity: high
+  - id: colorblind-safe-status
+    check: Every status uses color + icon/label, never color alone; AA contrast.
+    severity: high
+  - id: tokens-match-design
+    check: ":root tokens (palette, fonts, radii) match DESIGN.md."
+    severity: medium
+tools:
+  - "node node_modules/impeccable/cli/bin/cli.js detect src/static/index.html"
+  - "node node_modules/impeccable/cli/bin/cli.js detect src/static/manual_mask.html"
+deliverable: Prioritized visual findings (file:line) mapped to DESIGN.md rules, with fixes.
+done_when:
+  - Detector findings are only the known intentional/false-positive set.
+  - All content text >=12px; palette/fonts match DESIGN.md.
