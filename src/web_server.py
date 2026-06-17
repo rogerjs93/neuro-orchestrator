@@ -8,6 +8,7 @@ import asyncio
 from collections import OrderedDict
 import json
 import os
+import shutil
 import time
 import uuid
 import zipfile
@@ -20,7 +21,7 @@ import nibabel as nib
 import numpy as np
 from scipy.ndimage import binary_dilation, binary_erosion, binary_fill_holes, label
 import uvicorn
-from fastapi import Body, FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
@@ -1604,6 +1605,56 @@ async def ingest_dicom(payload: Dict[str, Any] = Body(default={})) -> JSONRespon
     asyncio.create_task(_run_ingest(cmd, participant))
     return JSONResponse({"message": f"DICOM ingestion started for {participant}",
                          "config": str(config_path)})
+
+
+def _safe_label(participant: str) -> str:
+    base = participant.strip()
+    base = base[4:] if base.lower().startswith("sub-") else base
+    return "".join(c for c in base if c.isalnum() or c in "-_")
+
+
+@app.post("/api/ingest/dicom-upload")
+async def ingest_dicom_upload(
+    file: UploadFile,
+    participant: str = Form(...),
+    session: str = Form(""),
+) -> JSONResponse:
+    """Clinician front door: upload a DICOM .zip; convert to BIDS via dcm2bids."""
+    if not (file.filename or "").lower().endswith(".zip"):
+        return JSONResponse({"error": "Upload a .zip of the DICOM folder"}, status_code=400)
+    label = _safe_label(participant)
+    if not label:
+        return JSONResponse({"error": "A valid subject id is required (e.g. sub-01)"}, status_code=400)
+
+    # Extract under the host-mounted data dir so the dcm2bids container can mount it.
+    ingest_dir = DATA_DIR / ".dicom_ingest" / label
+    if ingest_dir.exists():
+        shutil.rmtree(ingest_dir, ignore_errors=True)
+    ingest_dir.mkdir(parents=True, exist_ok=True)
+    tmp = DATA_DIR / f"_dicom_{label}.zip"
+    tmp.write_bytes(await file.read())
+    try:
+        with zipfile.ZipFile(tmp, "r") as zf:
+            zf.extractall(ingest_dir)
+    except zipfile.BadZipFile:
+        tmp.unlink(missing_ok=True)
+        return JSONResponse({"error": "Not a valid .zip archive"}, status_code=400)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    config_path = DATA_DIR / ".dcm2bids_config.json"
+    if not config_path.is_file():
+        write_default_config(config_path)
+
+    cmd = build_dcm2bids_command(
+        dicom_dir=runner._host_bind("data", ".dicom_ingest", label),
+        participant=f"sub-{label}",
+        output_dir=runner._host_bind("data"),
+        config=runner._host_bind("data", ".dcm2bids_config.json"),
+        session=(session.strip() or None),
+    )
+    asyncio.create_task(_run_ingest(cmd, f"sub-{label}"))
+    return JSONResponse({"message": f"DICOM upload received for sub-{label}; converting…"})
 
 
 @app.post("/api/reset")

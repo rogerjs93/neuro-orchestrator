@@ -773,8 +773,8 @@
     <div class="stl-panel" id="ingest-panel">
       <div class="stl-title">DICOM → BIDS</div>
       <div class="stl-row">
-        <span class="stl-label">DICOM dir</span>
-        <input id="ing-dir" class="stl-select" placeholder="server path to a DICOM folder">
+        <span class="stl-label">DICOM .zip</span>
+        <input type="file" id="ing-file" accept=".zip" class="stl-select">
       </div>
       <div class="stl-row">
         <span class="stl-label">Subject</span>
@@ -1291,14 +1291,15 @@ function handleProgress(msg) {
 }
 
 async function ingestDicom() {
-  const dicom_dir = document.getElementById('ing-dir').value.trim();
+  const fileEl = document.getElementById('ing-file');
   const participant = document.getElementById('ing-sub').value.trim();
-  if (!dicom_dir || !participant) { alert('Enter a DICOM directory and a subject id (e.g. sub-01).'); return; }
+  const file = fileEl && fileEl.files && fileEl.files[0];
+  if (!file || !participant) { alert('Choose a DICOM .zip and enter a subject id (e.g. sub-01).'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('participant', participant);
   try {
-    const r = await fetch('/api/ingest/dicom', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dicom_dir, participant }),
-    });
+    const r = await fetch('/api/ingest/dicom-upload', { method: 'POST', body: fd });
     const d = await r.json();
     if (!r.ok) alert('Ingest: ' + (d.error || r.status));
   } catch (e) { alert('Ingest failed: ' + e); }

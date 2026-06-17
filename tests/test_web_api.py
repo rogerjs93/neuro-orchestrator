@@ -60,6 +60,28 @@ def test_ingest_rejects_missing_dir():
     assert r.status_code == 400
 
 
+def test_dicom_upload_rejects_non_zip():
+    r = client.post(
+        "/api/ingest/dicom-upload",
+        files={"file": ("scan.txt", b"not a zip", "text/plain")},
+        data={"participant": "sub-01"},
+    )
+    assert r.status_code == 400
+
+
+def test_dicom_upload_requires_participant():
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("0001.dcm", b"x")
+    r = client.post(
+        "/api/ingest/dicom-upload",
+        files={"file": ("dicom.zip", buf.getvalue(), "application/zip")},
+    )
+    assert r.status_code in (400, 422)   # required Form field missing
+
+
 def test_group_stats_requires_two_groups():
     r = client.post("/api/group-stats", json={"target": "network", "groups": {"only": ["s1"]}})
     assert r.status_code == 400
