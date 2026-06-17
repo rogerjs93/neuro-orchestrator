@@ -4,24 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Manual Mask Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #07090e;
-      --panel: #0f1822;
-      --panel-2: #162030;
-      --line: #2c4060;
-      --text: #d8ecff;
-      --muted: #7aaacf;
-      --accent: #3dbeff;
-      --danger: #ff4f4f;
-      --ok: #4fd97a;
+      /* Design language (DESIGN.md): slate base + instrument-teal accent, flat. */
+      --bg: #0E1417;
+      --panel: #161D21;
+      --panel-2: #1E272C;
+      --line: #2A353B;
+      --text: #E8EEF0;
+      --muted: #9DAAB0;
+      --accent: #2BB6A0;
+      --danger: #C2483F;
+      --ok: #2BB6A0;
+      --sans: 'IBM Plex Sans', system-ui, sans-serif;
+      --mono: 'IBM Plex Mono', monospace;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: "Space Mono", monospace;
+      font-family: var(--sans);
       color: var(--text);
-      background: radial-gradient(900px 550px at 0% -10%, #0d2340 0%, var(--bg) 55%);
+      background: var(--bg);
       min-height: 100vh;
     }
     .wrap {
@@ -31,10 +36,10 @@
       padding: 14px;
     }
     .panel {
-      background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+      background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 12px;
+      border-radius: 10px;
+      padding: 14px;
     }
     h1 {
       margin: 0 0 10px 0;
@@ -60,7 +65,7 @@
     }
     input[type="number"] { width: 80px; }
     button { cursor: pointer; }
-    button.primary { background: #0e2e4a; border-color: #3dbeff; color: #3dbeff; }
+    button.primary { background: transparent; border-color: var(--accent); color: var(--accent); }
     button.good { background: #0d3620; border-color: #4fd97a; color: #4fd97a; }
     button.danger { background: #3a0d0d; border-color: #ff4f4f; color: #ff4f4f; }
     button:disabled { opacity: var(--state-disabled-opacity); cursor: not-allowed; }
@@ -154,24 +159,19 @@
     }
 
     body {
-      font-family: "Space Mono", monospace;
-      background:
-        radial-gradient(980px 620px at 8% -10%, rgba(61, 190, 255, 0.22), transparent 58%),
-        radial-gradient(840px 560px at 96% 8%, rgba(61, 190, 255, 0.14), transparent 60%),
-        var(--bg);
+      font-family: var(--sans);
+      background: var(--bg);
     }
 
     .panel,
     .slice-card,
     .versions,
     .log {
-      box-shadow: var(--ui-shadow-sm);
       animation: ui-rise 300ms ease-out;
     }
 
-    .panel {
-      backdrop-filter: blur(8px);
-    }
+    /* Monospace where it carries meaning: log stream, ids, coordinates. */
+    .log { font-family: var(--mono); }
 
     .row {
       gap: 9px;
