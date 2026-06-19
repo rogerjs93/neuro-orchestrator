@@ -726,7 +726,7 @@
 <header>
   <div class="logo">⬡ NEURO<span>-ORCHESTRATOR</span></div>
   <span class="ruo-badge" title="The wrapped tools are peer-reviewed research software, not clinically certified medical devices. For research and hypothesis testing only — not for diagnostic use.">RESEARCH USE ONLY</span>
-  <div class="conn-dot" id="conn-dot"></div>
+  <div class="conn-dot" id="conn-dot" aria-hidden="true"></div>
   <span id="conn-label">connecting…</span>
   <div id="mock-badge" class="badge-mock" style="display:none">MOCK</div>
   <div class="spacer"></div>
@@ -734,7 +734,7 @@
 
   <div class="split-btn" id="run-split">
     <button class="hdr-btn primary" id="btn-run-main" onclick="apiRunAction()">RUN ALL</button>
-    <button class="hdr-btn primary split-arrow" onclick="toggleMenu('run-menu', event)">▼</button>
+    <button class="hdr-btn primary split-arrow" onclick="toggleMenu('run-menu', event)" aria-label="More run options">▼</button>
     <div class="split-menu" id="run-menu" hidden>
       <button class="split-item active" id="run-mode-all" onclick="setRunMode('all')">Run all subjects</button>
       <button class="split-item" id="run-mode-focused" onclick="setRunMode('focused')">Run focused subject</button>
@@ -745,7 +745,7 @@
 
   <div class="split-btn" id="stl-split">
     <button class="hdr-btn" id="btn-stl-main" onclick="apiStlAction()">STL ALL</button>
-    <button class="hdr-btn split-arrow" onclick="toggleMenu('stl-menu', event)">▼</button>
+    <button class="hdr-btn split-arrow" onclick="toggleMenu('stl-menu', event)" aria-label="More STL options">▼</button>
     <div class="split-menu" id="stl-menu" hidden>
       <button class="split-item active" id="stl-mode-all" onclick="setStlMode('all')">STL all subjects</button>
       <button class="split-item" id="stl-mode-focused" onclick="setStlMode('focused')">STL focused subject</button>
@@ -774,11 +774,11 @@
       <div class="stl-title">DICOM → BIDS</div>
       <div class="stl-row">
         <span class="stl-label">DICOM .zip</span>
-        <input type="file" id="ing-file" accept=".zip" class="stl-select">
+        <input type="file" id="ing-file" accept=".zip" class="stl-select" aria-label="DICOM .zip file">
       </div>
       <div class="stl-row">
         <span class="stl-label">Subject</span>
-        <input id="ing-sub" class="stl-select" placeholder="sub-01" style="max-width:120px">
+        <input id="ing-sub" class="stl-select" placeholder="sub-01" style="max-width:120px" aria-label="Subject id for DICOM import">
         <button class="stl-btn" onclick="ingestDicom()">INGEST</button>
       </div>
     </div>
@@ -787,12 +787,12 @@
       <div class="stl-title">REVIEW GATES</div>
       <div class="stl-row">
         <span class="stl-label">Masking</span>
-        <select id="gate-mask-mode" class="stl-select" onchange="updateGateConfig()">
+        <select id="gate-mask-mode" class="stl-select" onchange="updateGateConfig()" aria-label="Masking review mode">
           <option value="gated">Pause for review</option>
           <option value="auto">Run automatically</option>
           <option value="off">Skip masking</option>
         </select>
-        <select id="gate-mask-trigger" class="stl-select" onchange="updateGateConfig()">
+        <select id="gate-mask-trigger" class="stl-select" onchange="updateGateConfig()" aria-label="Masking review trigger">
           <option value="always">Always pause</option>
           <option value="on_flag">Only if flagged</option>
         </select>
@@ -803,15 +803,17 @@
       <div class="stl-title">GROUP ANALYSIS</div>
       <div class="stl-row">
         <span class="stl-label">Group by</span>
-        <input id="grp-column" class="stl-select" placeholder="participants.tsv column (e.g. group)">
+        <select id="grp-column" class="stl-select" aria-label="Group subjects by participants.tsv column">
+          <option value="">— participants.tsv column —</option>
+        </select>
       </div>
       <div class="stl-row">
         <span class="stl-label">Target</span>
-        <select id="grp-target" class="stl-select" onchange="grpToggleMethod()">
+        <select id="grp-target" class="stl-select" onchange="grpToggleMethod()" aria-label="Group analysis target">
           <option value="network">Network metrics</option>
           <option value="fc">Connectivity (FC)</option>
         </select>
-        <select id="grp-method" class="stl-select" style="display:none">
+        <select id="grp-method" class="stl-select" style="display:none" aria-label="FC analysis method">
           <option value="permutation">Permutation (FWE)</option>
           <option value="nbs">Network-Based Statistic</option>
           <option value="screen">Mass-univariate (FDR)</option>
@@ -819,11 +821,11 @@
       </div>
       <div class="stl-row">
         <span class="stl-label">Covariates</span>
-        <input id="grp-cov" class="stl-select" placeholder="optional, comma-sep (e.g. age,sex)">
+        <input id="grp-cov" class="stl-select" placeholder="optional, comma-sep (e.g. age,sex)" aria-label="Covariate columns">
       </div>
       <div class="stl-row">
         <span class="stl-label">Alpha</span>
-        <input id="grp-alpha" class="stl-select" value="0.05" style="max-width:80px">
+        <input id="grp-alpha" class="stl-select" value="0.05" style="max-width:80px" aria-label="Significance level alpha">
         <button class="stl-btn" onclick="runGroupStats()">RUN ANALYSIS</button>
       </div>
       <div id="group-results"></div>
@@ -1302,12 +1304,26 @@ async function ingestDicom() {
     const r = await fetch('/api/ingest/dicom-upload', { method: 'POST', body: fd });
     const d = await r.json();
     if (!r.ok) alert('Ingest: ' + (d.error || r.status));
+    else loadParticipantColumns();
   } catch (e) { alert('Ingest failed: ' + e); }
 }
 
 function grpToggleMethod() {
   const t = document.getElementById('grp-target').value;
   document.getElementById('grp-method').style.display = t === 'fc' ? '' : 'none';
+}
+
+async function loadParticipantColumns() {
+  const sel = document.getElementById('grp-column');
+  if (!sel) return;
+  try {
+    const r = await fetch('/api/participants/columns');
+    const d = await r.json();
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— participants.tsv column —</option>'
+      + (d.columns || []).map(c => `<option value="${c}">${c}</option>`).join('');
+    if (cur) sel.value = cur;
+  } catch (e) { /* leave the placeholder */ }
 }
 
 function grpFmtP(p) {
@@ -2283,6 +2299,7 @@ setupDragDrop();
 connect();
 updateActionButtons();
 setInterval(refreshLive, 1000);   // tick the heartbeat / "Ns ago" display
+loadParticipantColumns();          // populate the group-analysis column picker
 
 applyPresetDefaultsToAdvanced(document.getElementById('stl-preset').value);
 document.getElementById('stl-preset').addEventListener('change', () => {

@@ -82,6 +82,16 @@ def test_dicom_upload_requires_participant():
     assert r.status_code in (400, 422)   # required Form field missing
 
 
+def test_participants_columns_lists_phenotypes():
+    (web_server.DATA_DIR / "participants.tsv").write_text(
+        "participant_id\tsex\tage\nsub-01\tF\t26\n", encoding="utf-8")
+    r = client.get("/api/participants/columns")
+    assert r.status_code == 200
+    cols = r.json()["columns"]
+    assert "sex" in cols and "age" in cols
+    assert "participant_id" not in cols
+
+
 def test_group_stats_requires_two_groups():
     r = client.post("/api/group-stats", json={"target": "network", "groups": {"only": ["s1"]}})
     assert r.status_code == 400

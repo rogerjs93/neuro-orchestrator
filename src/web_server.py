@@ -1436,6 +1436,22 @@ async def rerun_from_stage(subject_id: str, stage: str, payload: Dict[str, Any] 
     return JSONResponse({"message": "reprocess queued", "stages": changed})
 
 
+@app.get("/api/participants/columns")
+async def participants_columns() -> JSONResponse:
+    """Phenotype columns from participants.tsv, for the group-analysis pickers."""
+    import csv
+    path = DATA_DIR / "participants.tsv"
+    cols: List[str] = []
+    if path.is_file():
+        try:
+            with open(path, newline="", encoding="utf-8") as handle:
+                header = next(csv.reader(handle, delimiter="\t"), [])
+            cols = [c for c in header if c and c not in ("participant_id", "participant")]
+        except Exception:
+            cols = []
+    return JSONResponse({"columns": cols})
+
+
 @app.get("/api/group-stats")
 async def list_group_stats() -> JSONResponse:
     out_dir = OUTPUT_DIR / "group"
