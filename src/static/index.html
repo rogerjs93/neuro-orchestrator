@@ -74,6 +74,8 @@
   .grp-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-dim); }
   .grp-table tr.sig td { color: var(--teal); }
   .live-prog { font-size: 11px; color: var(--teal); font-family: var(--font-mono); margin-left: 6px; }
+  .mask-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-dim); margin: 0 8px 4px 0; }
+  .panel-note { font-size: 12px; color: var(--text-dim); margin: 2px 0 8px; line-height: 1.5; }
   .ruo-badge { font-size: 10px; letter-spacing: .08em; color: var(--yellow);
     border: 1px solid var(--yellow); border-radius: 4px; padding: 2px 7px; cursor: help; }
 
@@ -797,6 +799,17 @@
           <option value="on_flag">Only if flagged</option>
         </select>
       </div>
+      <div class="stl-row">
+        <span class="stl-label">Target</span>
+        <select id="mask-target-mode" class="stl-select" onchange="onMaskTargetChange()" aria-label="Masking target region type">
+          <option value="whole">Whole brain</option>
+          <option value="external_cortex">Cortex only</option>
+          <option value="by_lobe">By lobe</option>
+          <option value="by_network">By network</option>
+          <option value="by_tissue">By tissue</option>
+        </select>
+      </div>
+      <div class="stl-row" id="mask-target-groups" style="display:none"></div>
     </div>
 
     <div class="stl-panel" id="group-panel">
@@ -833,6 +846,7 @@
 
     <div class="stl-panel">
       <div class="stl-title">STL GENERATION</div>
+      <div class="panel-note">The <b>Masking target</b> above sets the analytical ROI for the pipeline. Use this for batch 3D-print extraction — pick parts to export as STL across subjects.</div>
       <div class="stl-row">
         <span class="stl-label">Preset</span>
         <select id="stl-preset" class="stl-select">
@@ -1181,6 +1195,7 @@ async function updateGateConfig() {
 
 function renderGates(gates) {
   syncGateControls(gates);
+  syncMaskTarget(gates);
   const pending = (gates && gates.pending) || [];
   const pipe = document.getElementById('pipeline-wrap');
   let wrap = document.getElementById('gate-wrap');
@@ -1306,6 +1321,55 @@ async function ingestDicom() {
     if (!r.ok) alert('Ingest: ' + (d.error || r.status));
     else loadParticipantColumns();
   } catch (e) { alert('Ingest failed: ' + e); }
+}
+
+let maskGroupVocab = {};
+
+async function loadMaskGroups() {
+  try {
+    const r = await fetch('/api/mask/groups');
+    maskGroupVocab = (await r.json()).vocab || {};
+    const r2 = await fetch('/api/mask-selection');
+    syncMaskTarget({ mask_selection: (await r2.json()).mask_selection });
+  } catch (e) { /* leave defaults */ }
+}
+
+function renderMaskGroupChips(mode, selected) {
+  const wrap = document.getElementById('mask-target-groups');
+  if (!wrap) return;
+  const vocab = maskGroupVocab[mode];
+  if (!vocab) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+  const sel = new Set(selected || []);
+  wrap.style.display = '';
+  wrap.innerHTML = vocab.map(g =>
+    `<label class="mask-chip"><input type="checkbox" value="${g}" ${sel.has(g) ? 'checked' : ''} onchange="postMaskSelection()"> ${g.replace(/_/g, ' ')}</label>`
+  ).join('');
+}
+
+function onMaskTargetChange() {
+  renderMaskGroupChips(document.getElementById('mask-target-mode').value, []);
+  postMaskSelection();
+}
+
+async function postMaskSelection() {
+  const mode = document.getElementById('mask-target-mode').value;
+  const groups = Array.from(document.querySelectorAll('#mask-target-groups input:checked')).map(i => i.value);
+  try {
+    await fetch('/api/mask-selection', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, groups }),
+    });
+  } catch (e) { alert('Could not set masking target: ' + e); }
+}
+
+function syncMaskTarget(gates) {
+  const ms = gates && gates.mask_selection;
+  const modeSel = document.getElementById('mask-target-mode');
+  if (!ms || !modeSel) return;
+  if (document.activeElement !== modeSel) modeSel.value = ms.mode || 'whole';
+  if (!document.querySelector('#mask-target-groups input:focus')) {
+    renderMaskGroupChips(modeSel.value, ms.groups || []);
+  }
 }
 
 function grpToggleMethod() {
@@ -2300,6 +2364,7 @@ connect();
 updateActionButtons();
 setInterval(refreshLive, 1000);   // tick the heartbeat / "Ns ago" display
 loadParticipantColumns();          // populate the group-analysis column picker
+loadMaskGroups();                  // populate the masking-target group picker
 
 applyPresetDefaultsToAdvanced(document.getElementById('stl-preset').value);
 document.getElementById('stl-preset').addEventListener('change', () => {

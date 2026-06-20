@@ -92,6 +92,27 @@ def test_participants_columns_lists_phenotypes():
     assert "participant_id" not in cols
 
 
+def test_mask_groups_vocab():
+    r = client.get("/api/mask/groups")
+    assert r.status_code == 200
+    vocab = r.json()["vocab"]
+    assert "default_mode" in vocab["by_network"]
+    assert "frontal" in vocab["by_lobe"]
+
+
+def test_mask_selection_set_and_filter():
+    r = client.post("/api/mask-selection",
+                    json={"mode": "by_network", "groups": ["default_mode", "visual", "bogus"]})
+    assert r.status_code == 200
+    ms = r.json()["mask_selection"]
+    assert ms["mode"] == "by_network"
+    assert ms["groups"] == ["default_mode", "visual"]   # invalid group filtered out
+
+
+def test_mask_selection_rejects_bad_mode():
+    assert client.post("/api/mask-selection", json={"mode": "nope"}).status_code == 400
+
+
 def test_group_stats_requires_two_groups():
     r = client.post("/api/group-stats", json={"target": "network", "groups": {"only": ["s1"]}})
     assert r.status_code == 400

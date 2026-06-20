@@ -123,6 +123,20 @@ mask_gate_details: Dict[str, Dict[str, Any]] = {}
 # Live progress for the currently-running stage of each subject (parsed from the
 # tool's streamed log). Ephemeral; cleared when the stage ends.
 stage_progress: Dict[str, Dict[str, Any]] = {}
+
+# Masking target for the auto baseline built at the gate. Single source of truth;
+# the STL panel points here for its batch 3D-print extraction.
+mask_selection: Dict[str, Any] = {"mode": "whole", "groups": []}
+MASK_MODES = {"whole", "external_cortex", "by_lobe", "by_network", "by_tissue"}
+# Fixed grouping vocabularies (from stl_export._infer_lobe/_network/_tissue).
+MASK_GROUP_VOCAB: Dict[str, List[str]] = {
+    "by_lobe": ["frontal", "temporal", "parietal", "occipital",
+                "limbic_insular", "subcortical", "ventricle_white_matter"],
+    "by_network": ["default_mode", "visual", "somatomotor", "frontoparietal",
+                   "attention", "limbic", "subcortical_or_other"],
+    "by_tissue": ["cortical_gray_matter", "subcortical_gray_matter",
+                  "white_matter", "csf_ventricular"],
+}
 MASK_CACHE_MAX_ITEMS = 8
 _mask_volume_cache: "OrderedDict[str, tuple[np.ndarray, nib.spatialimages.SpatialImage, Dict[str, Any]]]" = OrderedDict()
 ANATOMY_CACHE_MAX_ITEMS = 4
@@ -142,6 +156,7 @@ def _build_checkpoint_payload() -> Dict[str, Any]:
         "stl_intents": [asdict(i) for i in stl_intents.values()],
         "gate_config": gate_config,
         "gate_audit": gate_audit[-MAX_LOG_BUFFER:],
+        "mask_selection": mask_selection,
     }
 
 
@@ -207,6 +222,11 @@ def _restore_checkpoint() -> Dict[str, int]:
         raw_gate_audit = checkpoint.get("gate_audit")
         if isinstance(raw_gate_audit, list):
             gate_audit = [e for e in raw_gate_audit if isinstance(e, dict)][-MAX_LOG_BUFFER:]
+        raw_mask_sel = checkpoint.get("mask_selection")
+        if isinstance(raw_mask_sel, dict) and raw_mask_sel.get("mode") in MASK_MODES:
+            mask_selection["mode"] = raw_mask_sel["mode"]
+            mask_selection["groups"] = [g for g in (raw_mask_sel.get("groups") or [])
+                                        if g in MASK_GROUP_VOCAB.get(raw_mask_sel["mode"], [])]
         state_data = checkpoint.get("state", {})
         if isinstance(state_data, dict):
             pipeline_state = PipelineState.from_dict(state_data)
@@ -1058,6 +1078,7 @@ def _snapshot() -> Dict[str, Any]:
             "config": gate_config,
             "pending": pending_gates,
             "audit": gate_audit[-25:],
+            "mask_selection": mask_selection,
         },
     }
 
@@ -1314,6 +1335,32 @@ async def run_subject_stage(subject_id: str, stage: str) -> JSONResponse:
 
     asyncio.create_task(_run(subject_id, stages=[stage]))
     return JSONResponse({"message": f"Started stage '{stage}' for {subject_id}"})
+
+
+@app.get("/api/mask/groups")
+async def mask_groups() -> JSONResponse:
+    """Fixed grouping vocabularies for the masking-target picker."""
+    return JSONResponse({"vocab": MASK_GROUP_VOCAB})
+
+
+@app.get("/api/mask-selection")
+async def get_mask_selection() -> JSONResponse:
+    return JSONResponse({"mask_selection": mask_selection})
+
+
+@app.post("/api/mask-selection")
+async def set_mask_selection(payload: Dict[str, Any] = Body(default={})) -> JSONResponse:
+    """Set the masking target for the auto baseline built at the gate."""
+    mode = str(payload.get("mode", "whole")).strip().lower()
+    if mode not in MASK_MODES:
+        return JSONResponse({"error": f"mode must be one of {sorted(MASK_MODES)}"}, status_code=400)
+    groups = payload.get("groups", []) or []
+    groups = [g for g in groups if g in MASK_GROUP_VOCAB.get(mode, [])] if isinstance(groups, list) else []
+    mask_selection["mode"] = mode
+    mask_selection["groups"] = groups
+    _save_checkpoint_now()
+    await broadcast(_snapshot())
+    return JSONResponse({"mask_selection": mask_selection})
 
 
 @app.get("/api/gate-config")
@@ -2280,15 +2327,23 @@ def _record_gate_decision(
 
 def _build_mask_baseline(subject_id: str) -> Dict[str, Any]:
     """Build + persist the automatic baseline mask version (no STL). Returns the saved version dict."""
-    mask, ref_img, info = _build_auto_mask(subject_id, "standard", {"mask_mode": "whole"})
+    mode = mask_selection.get("mode", "whole")
+    groups = mask_selection.get("groups", []) or []
+    if mode in ("by_lobe", "by_network", "by_tissue"):
+        _preset, _params = mode, {"mask_mode": mode, "selected_groups": groups}
+    elif mode == "external_cortex":
+        _preset, _params = "external_cortex", {"mask_mode": "external_cortex"}
+    else:
+        _preset, _params = "standard", {"mask_mode": "whole"}
+    mask, ref_img, info = _build_auto_mask(subject_id, _preset, _params)
     saved = _save_mask_version(
         subject_id=subject_id,
         mask=mask,
         reference_img=ref_img,
         parent_version_id=None,
         source_type="auto",
-        operation_summary="pipeline_auto_mask:whole",
-        extra_meta=info,
+        operation_summary=f"pipeline_auto_mask:{mode}" + (f"[{','.join(groups)}]" if groups else ""),
+        extra_meta={**info, "selection_mode": mode, "selection_groups": groups},
     )
     _mask_cache_invalidate(subject_id)
     return saved
