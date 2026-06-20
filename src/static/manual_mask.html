@@ -48,6 +48,11 @@
       letter-spacing: 0.02em;
     }
     .muted { color: var(--muted); }
+    .sel-options {
+      max-height: 180px; overflow: auto; display: flex; flex-direction: column;
+      gap: 4px; margin: 6px 0; padding: 8px; border: 1px solid var(--line); border-radius: 8px;
+    }
+    .sel-options label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
     .row {
       display: flex;
       align-items: center;
@@ -354,6 +359,21 @@
         <button id="btn-refresh">REFRESH</button>
       </div>
       <div class="row muted">Use INIT FROM AUTO to refine automatic selection, or INIT EMPTY MASK to create from scratch.</div>
+
+      <div class="row" style="margin-top:10px;"><strong>Anatomical selection</strong></div>
+      <div class="row">
+        <label>Mode</label>
+        <select id="sel-mode" aria-label="Anatomical selection mode">
+          <option value="by_lobe">By lobe</option>
+          <option value="by_network">By network</option>
+          <option value="by_tissue">By tissue</option>
+          <option value="by_region">By region</option>
+        </select>
+      </div>
+      <div id="sel-options" class="sel-options"><span class="muted">Loading atlas…</span></div>
+      <div class="row">
+        <button id="btn-init-selection" class="primary">INIT FROM SELECTION</button>
+      </div>
       <div class="row">
         <button id="btn-export" class="good">EXPORT STL FROM VERSION</button>
         <button id="btn-delete" class="danger">DELETE CURRENT VERSION</button>
@@ -925,6 +945,54 @@
       }
     }
 
+    let atlasCatalog = null;
+
+    async function loadAtlasCatalog() {
+      const wrap = document.getElementById('sel-options');
+      try {
+        atlasCatalog = await apiGet(`/api/stl/catalog/${encodeURIComponent(subjectId)}`);
+        renderSelOptions();
+      } catch (e) {
+        atlasCatalog = null;
+        if (wrap) wrap.innerHTML = '<span class="muted">Atlas unavailable — run segmentation for this subject first.</span>';
+      }
+    }
+
+    function renderSelOptions() {
+      const wrap = document.getElementById('sel-options');
+      if (!wrap) return;
+      if (!atlasCatalog) { wrap.innerHTML = '<span class="muted">Atlas not loaded.</span>'; return; }
+      const mode = document.getElementById('sel-mode').value;
+      let html = '';
+      if (mode === 'by_region') {
+        const items = atlasCatalog.items || [];
+        html = items.map(it => `<label><input type="checkbox" data-label="${it.id}"> ${it.name || ('Region ' + it.id)}</label>`).join('');
+      } else {
+        const groups = (atlasCatalog.groups && atlasCatalog.groups[mode]) || {};
+        html = Object.keys(groups).sort().map(g =>
+          `<label><input type="checkbox" data-group="${g}"> ${g.replace(/_/g, ' ')} <span class="muted">(${groups[g].length})</span></label>`
+        ).join('');
+      }
+      wrap.innerHTML = html || '<span class="muted">No options for this mode.</span>';
+    }
+
+    async function initFromSelection() {
+      if (!atlasCatalog) { log('Atlas catalog not loaded', 'err'); return; }
+      const mode = document.getElementById('sel-mode').value;
+      const labels = Array.from(document.querySelectorAll('#sel-options input[data-label]:checked')).map(i => Number(i.dataset.label));
+      const groups = Array.from(document.querySelectorAll('#sel-options input[data-group]:checked')).map(i => i.dataset.group);
+      if (mode === 'by_region' && !labels.length) { log('Pick at least one region', 'err'); return; }
+      if (mode !== 'by_region' && !groups.length) { log('Pick at least one group', 'err'); return; }
+      const payload = {
+        preset: mode,
+        params: { mask_mode: mode, selected_labels: labels, include_labels: labels, selected_groups: groups },
+      };
+      const data = await apiPost(`/api/mask/init/${encodeURIComponent(subjectId)}`, payload);
+      log(`Initialized ${data.version.version_id} from ${mode} selection`, 'ok');
+      await loadCatalog(true);
+      await activateVersion(data.version.version_id);
+    }
+
     async function initFromAuto() {
       const payload = {
         preset: seedPreset,
@@ -1134,6 +1202,10 @@
       document.getElementById('btn-init-empty').addEventListener('click', async () => {
         try { await initEmptyMask(); } catch (err) { log(String(err), 'err'); }
       });
+      document.getElementById('sel-mode').addEventListener('change', renderSelOptions);
+      document.getElementById('btn-init-selection').addEventListener('click', async () => {
+        try { await initFromSelection(); } catch (err) { log(String(err), 'err'); }
+      });
       document.getElementById('btn-refresh').addEventListener('click', async () => {
         try {
           await loadCatalog(false);
@@ -1209,6 +1281,7 @@
       setActionButtonsDisabled(false);
       updateUndoRedoState();
       refreshStrokeStatus();
+      loadAtlasCatalog();   // populate the anatomical-selection picker (non-blocking)
       try {
         await loadCatalog(true);
         if (versions.length && !activeVersionId) {
