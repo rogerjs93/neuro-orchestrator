@@ -53,6 +53,12 @@
       gap: 4px; margin: 6px 0; padding: 8px; border: 1px solid var(--line); border-radius: 8px;
     }
     .sel-options label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
+    .sel-group { border-bottom: 1px solid var(--line); padding: 3px 0; }
+    .sel-grp-head { display: flex; justify-content: space-between; align-items: center; }
+    .sel-expand { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 4px; }
+    .sel-grp-items { display: none; flex-direction: column; gap: 2px; padding: 4px 0 4px 18px; }
+    .sel-group.open .sel-grp-items { display: flex; }
+    .sel-grp-items .reg { font-size: 12px; color: var(--muted); }
     .row {
       display: flex;
       align-items: center;
@@ -362,17 +368,18 @@
 
       <div class="row" style="margin-top:10px;"><strong>Anatomical selection</strong></div>
       <div class="row">
-        <label>Mode</label>
-        <select id="sel-mode" aria-label="Anatomical selection mode">
-          <option value="by_lobe">By lobe</option>
-          <option value="by_network">By network</option>
-          <option value="by_tissue">By tissue</option>
-          <option value="by_region">By region</option>
+        <label>Group by</label>
+        <select id="sel-mode" aria-label="Group anatomical regions by">
+          <option value="by_lobe">Lobe</option>
+          <option value="by_network">Network</option>
+          <option value="by_tissue">Tissue</option>
         </select>
       </div>
+      <div class="row muted">Tick a whole group, or expand (▸) it to pick individual regions.</div>
       <div id="sel-options" class="sel-options"><span class="muted">Loading atlas…</span></div>
       <div class="row">
         <button id="btn-init-selection" class="primary">INIT FROM SELECTION</button>
+        <span class="muted" id="sel-count">0 regions</span>
       </div>
       <div class="row">
         <button id="btn-export" class="good">EXPORT STL FROM VERSION</button>
@@ -420,6 +427,9 @@
       <div class="row">
         <button id="btn-stroke-paint" class="primary">STROKE PAINT</button>
         <button id="btn-stroke-erase" class="danger">STROKE ERASE</button>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="mirror-toggle"> Mirror L/R — symmetric editing</label>
       </div>
       <div class="row muted" id="stroke-status">Stroke mode: OFF</div>
     </aside>
@@ -482,6 +492,7 @@
     let orthoviewRefreshTimer = null;
     let anatomyOpacity = 0.55;
     let strokeMode = null;
+    let mirrorMode = false;       // symmetric L/R editing across the sagittal midline
     const sliceBuf = {};          // canvasId -> {ctx,img,anatomy,width,height} for optimistic brush stamps
     let anatomyCacheKey = null;   // anatomy is static per slice index — cache to skip refetch while painting
     let anatomyCacheVal = null;
@@ -857,6 +868,22 @@
       ctx.putImageData(img, 0, 0);
     }
 
+    // Symmetry helpers: mirror a [z,y,x] center across the sagittal midline (x).
+    function mirrorCenter(center) {
+      const maxx = Math.max(0, (activeShape[2] || 1) - 1);
+      return [center[0], center[1], maxx - center[2]];
+    }
+
+    // Optimistic mirror stamp. The mirror is across x, so it's in-plane for axial
+    // and coronal (flip canvas px); for sagittal it lands on a different slice, so
+    // the committed op handles it and the deferred refresh shows it.
+    function mirrorStamp(plane, px, py, radius, erase) {
+      if (plane === 'sagittal') return;
+      const buf = sliceBuf[`${plane}-canvas`];
+      if (!buf) return;
+      stampBrush(plane, buf.width - 1 - px, py, radius, erase);
+    }
+
     function applySlicePayload(plane, data, anatomy) {
       if (!data) return;
       if (plane === 'axial') {
@@ -963,32 +990,55 @@
       if (!wrap) return;
       if (!atlasCatalog) { wrap.innerHTML = '<span class="muted">Atlas not loaded.</span>'; return; }
       const mode = document.getElementById('sel-mode').value;
-      let html = '';
-      if (mode === 'by_region') {
-        const items = atlasCatalog.items || [];
-        html = items.map(it => `<label><input type="checkbox" data-label="${it.id}"> ${it.name || ('Region ' + it.id)}</label>`).join('');
-      } else {
-        const groups = (atlasCatalog.groups && atlasCatalog.groups[mode]) || {};
-        html = Object.keys(groups).sort().map(g =>
-          `<label><input type="checkbox" data-group="${g}"> ${g.replace(/_/g, ' ')} <span class="muted">(${groups[g].length})</span></label>`
+      const groups = (atlasCatalog.groups && atlasCatalog.groups[mode]) || {};
+      const nameById = {};
+      (atlasCatalog.items || []).forEach(it => { nameById[it.id] = it.name || ('Region ' + it.id); });
+      const keys = Object.keys(groups).sort();
+      if (!keys.length) { wrap.innerHTML = '<span class="muted">No groups for this mode.</span>'; return; }
+      wrap.innerHTML = keys.map(g => {
+        const ids = groups[g];
+        const items = ids.map(id =>
+          `<label class="reg"><input type="checkbox" class="reg-check" data-label="${id}" data-group="${g}"> ${nameById[id]}</label>`
         ).join('');
-      }
-      wrap.innerHTML = html || '<span class="muted">No options for this mode.</span>';
+        return `<div class="sel-group">
+          <div class="sel-grp-head">
+            <label><input type="checkbox" class="grp-check" data-group="${g}"> <b>${g.replace(/_/g, ' ')}</b> <span class="muted">(${ids.length})</span></label>
+            <button type="button" class="sel-expand" aria-label="Expand ${g}">▸</button>
+          </div>
+          <div class="sel-grp-items">${items}</div>
+        </div>`;
+      }).join('');
+      updateSelCount();
+    }
+
+    function toggleGroup(groupCheckbox) {
+      const g = groupCheckbox.dataset.group;
+      document.querySelectorAll(`#sel-options input.reg-check[data-group="${CSS.escape(g)}"]`)
+        .forEach(cb => { cb.checked = groupCheckbox.checked; });
+    }
+
+    function updateSelCount() {
+      const n = document.querySelectorAll('#sel-options input.reg-check:checked').length;
+      const el = document.getElementById('sel-count');
+      if (el) el.textContent = `${n} region${n === 1 ? '' : 's'}`;
+      document.querySelectorAll('#sel-options .grp-check').forEach(gc => {
+        const regs = Array.from(document.querySelectorAll(`#sel-options input.reg-check[data-group="${CSS.escape(gc.dataset.group)}"]`));
+        const on = regs.filter(r => r.checked).length;
+        gc.checked = regs.length > 0 && on === regs.length;
+        gc.indeterminate = on > 0 && on < regs.length;
+      });
     }
 
     async function initFromSelection() {
       if (!atlasCatalog) { log('Atlas catalog not loaded', 'err'); return; }
-      const mode = document.getElementById('sel-mode').value;
-      const labels = Array.from(document.querySelectorAll('#sel-options input[data-label]:checked')).map(i => Number(i.dataset.label));
-      const groups = Array.from(document.querySelectorAll('#sel-options input[data-group]:checked')).map(i => i.dataset.group);
-      if (mode === 'by_region' && !labels.length) { log('Pick at least one region', 'err'); return; }
-      if (mode !== 'by_region' && !groups.length) { log('Pick at least one group', 'err'); return; }
+      const labels = Array.from(document.querySelectorAll('#sel-options input.reg-check:checked')).map(i => Number(i.dataset.label));
+      if (!labels.length) { log('Pick at least one region or group', 'err'); return; }
       const payload = {
-        preset: mode,
-        params: { mask_mode: mode, selected_labels: labels, include_labels: labels, selected_groups: groups },
+        preset: 'by_region',
+        params: { mask_mode: 'by_region', selected_labels: labels, include_labels: labels },
       };
       const data = await apiPost(`/api/mask/init/${encodeURIComponent(subjectId)}`, payload);
-      log(`Initialized ${data.version.version_id} from ${mode} selection`, 'ok');
+      log(`Initialized ${data.version.version_id} from ${labels.length} region(s)`, 'ok');
       await loadCatalog(true);
       await activateVersion(data.version.version_id);
     }
@@ -1037,12 +1087,19 @@
         operation.radius = Math.max(1, Number(document.getElementById('c-r').value || 2));
       }
 
-      try {
-        const data = await apiPost(`/api/mask/version/${encodeURIComponent(subjectId)}`, {
+      // Mirror single paint/erase across the L/R midline when symmetry is on.
+      let body = { parent_version_id: activeVersionId, expected_current_version_id: activeVersionId, operation };
+      if (mirrorMode && (opType === 'paint' || opType === 'erase')) {
+        const mc = mirrorCenter(operation.center);
+        body = {
           parent_version_id: activeVersionId,
           expected_current_version_id: activeVersionId,
-          operation,
-        });
+          operations: [operation, { type: opType, center: mc, radius: operation.radius }],
+        };
+      }
+
+      try {
+        const data = await apiPost(`/api/mask/version/${encodeURIComponent(subjectId)}`, body);
         log(`Saved ${data.version.version_id}: ${data.version.operation_summary}`, 'ok');
         await loadCatalog(false);
         await activateVersion(data.version.version_id, { recordHistory: true });
@@ -1147,6 +1204,11 @@
           appendInterpolatedStrokeOps(strokeSession.ops, center, center, strokeMode, radius);
           const d = canvasPixelFromEvent(canvas, ev);
           stampBrush(plane, d.px, d.py, radius, strokeMode === 'erase');
+          if (mirrorMode) {
+            const mc = mirrorCenter(center);
+            appendInterpolatedStrokeOps(strokeSession.ops, mc, mc, strokeMode, radius);
+            mirrorStamp(plane, d.px, d.py, radius, strokeMode === 'erase');
+          }
         });
 
         canvas.addEventListener('pointermove', (ev) => {
@@ -1160,9 +1222,19 @@
             strokeSession.opType,
             strokeSession.radius,
           );
-          strokeSession.lastCenter = center;
           const d = canvasPixelFromEvent(canvas, ev);
           stampBrush(plane, d.px, d.py, strokeSession.radius, strokeSession.opType === 'erase');
+          if (mirrorMode) {
+            appendInterpolatedStrokeOps(
+              strokeSession.ops,
+              mirrorCenter(strokeSession.lastCenter),
+              mirrorCenter(center),
+              strokeSession.opType,
+              strokeSession.radius,
+            );
+            mirrorStamp(plane, d.px, d.py, strokeSession.radius, strokeSession.opType === 'erase');
+          }
+          strokeSession.lastCenter = center;
         });
 
         const endStroke = async (ev) => {
@@ -1205,6 +1277,22 @@
       document.getElementById('sel-mode').addEventListener('change', renderSelOptions);
       document.getElementById('btn-init-selection').addEventListener('click', async () => {
         try { await initFromSelection(); } catch (err) { log(String(err), 'err'); }
+      });
+      const selOpts = document.getElementById('sel-options');
+      selOpts.addEventListener('change', (e) => {
+        if (e.target.classList.contains('grp-check')) toggleGroup(e.target);
+        updateSelCount();
+      });
+      selOpts.addEventListener('click', (e) => {
+        if (e.target.classList.contains('sel-expand')) {
+          const grp = e.target.closest('.sel-group');
+          grp.classList.toggle('open');
+          e.target.textContent = grp.classList.contains('open') ? '▾' : '▸';
+        }
+      });
+      document.getElementById('mirror-toggle').addEventListener('change', (e) => {
+        mirrorMode = e.target.checked;
+        log(`Mirror L/R ${mirrorMode ? 'ON' : 'OFF'}`, 'ok');
       });
       document.getElementById('btn-refresh').addEventListener('click', async () => {
         try {
