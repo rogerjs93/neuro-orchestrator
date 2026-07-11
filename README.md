@@ -125,6 +125,23 @@ done
 
 ---
 
+## Development & tests
+
+Install the dev dependencies and run the suite from the project root:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+The suite covers the pipeline state machine, artifact manifest/adapters,
+validators, topology, group statistics, DICOM-ingest command building, and the
+web API. Real-data integration tests run automatically when a bundled dataset is
+present and skip cleanly otherwise. CI (GitHub Actions, `.github/workflows/ci.yml`)
+runs `pytest` on every push and pull request.
+
+---
+
 ## Configuration
 
 Edit `config/pipeline.yaml` to control which stages run, output spaces, parallelism, and resource limits. Key options:

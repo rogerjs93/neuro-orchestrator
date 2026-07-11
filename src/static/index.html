@@ -920,6 +920,14 @@
           <span class="stl-label">Signal threshold</span>
           <input id="stl-threshold" class="stl-input" type="number" step="0.01" min="0" max="1" value="0.2">
         </div>
+        <div class="stl-row">
+          <label class="stl-label" title="Uniform ACVD retopology after repair — more even triangles, cleaner print-ready surface.">
+            <input id="stl-remesh" type="checkbox"> Uniform remesh (cleaner surface)
+          </label>
+          <span class="stl-label">Remesh target verts</span>
+          <input id="stl-remesh-verts" class="stl-input" type="number" min="0" step="500" value="0"
+                 title="0 = auto (keep current density). Otherwise the target output vertex count.">
+        </div>
       </div>
 
       <div id="stl-jobs"></div>
@@ -2085,6 +2093,14 @@ function buildStlPayload() {
     Object.assign(params, getAdvancedParams());
   }
 
+  // Remesh is an explicit intent — honor it even if no other advanced field was touched.
+  const remeshEl = document.getElementById('stl-remesh');
+  if (remeshEl && remeshEl.checked) {
+    params.remesh = true;
+    const tv = Number(document.getElementById('stl-remesh-verts')?.value || 0);
+    if (Number.isFinite(tv) && tv > 0) params.remesh_target_vertices = tv;
+  }
+
   if (!Object.keys(params).length) return { preset };
   return { preset, params };
 }
@@ -2414,6 +2430,8 @@ document.getElementById('stl-mask-items').addEventListener('change', (e) => {
   'stl-cortex-only',
   'stl-normalize',
   'stl-threshold',
+  'stl-remesh',
+  'stl-remesh-verts',
 ].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;

@@ -667,6 +667,24 @@ def _generate_single_stl(
     except Exception:
         pass
 
+    # Optional uniform remesh for a cleaner, print-ready surface (best-effort, gated by `remesh`).
+    remesh_report = None
+    if params.get("remesh"):
+        try:
+            from pipeline.remesh import remesh_mesh
+            from pipeline.topology import repair_mesh, mesh_topology
+            mesh, remesh_report = remesh_mesh(
+                mesh,
+                target_vertices=params.get("remesh_target_vertices"),
+                target_ratio=float(params.get("remesh_ratio", 1.0)),
+            )
+            if remesh_report.get("remeshed"):
+                # Clustering can reopen small boundaries — re-repair + refresh topology.
+                mesh, topology_repair = repair_mesh(mesh)
+                mesh_topo = mesh_topology(mesh)
+        except Exception:
+            pass
+
     subject_out = output_dir / subject_id
     subject_out.mkdir(parents=True, exist_ok=True)
 
@@ -690,6 +708,7 @@ def _generate_single_stl(
         "requested_decimation_ratio": float(params.get("decimation_ratio", 1.0)),
         "mesh_topology": mesh_topo,
         "topology_repair": topology_repair,
+        "remesh": remesh_report,
         "output_stl": str(stl_path),
     }
     sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
@@ -810,9 +829,21 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--preset", default="standard", choices=sorted(PRESETS.keys()))
     parser.add_argument("--params-json", default="{}")
+    parser.add_argument("--remesh", action="store_true",
+                        help="Uniform ACVD remesh after repair, for a cleaner print-ready STL.")
+    parser.add_argument("--remesh-target-vertices", type=int, default=None,
+                        help="Explicit output vertex budget for --remesh.")
+    parser.add_argument("--remesh-ratio", type=float, default=None,
+                        help="Output/input vertex ratio for --remesh when no target given (default 1.0).")
     args = parser.parse_args()
 
     overrides = json.loads(args.params_json)
+    if args.remesh:
+        overrides["remesh"] = True
+    if args.remesh_target_vertices is not None:
+        overrides["remesh_target_vertices"] = args.remesh_target_vertices
+    if args.remesh_ratio is not None:
+        overrides["remesh_ratio"] = args.remesh_ratio
     result = generate_stl(
         subject_id=args.subject,
         fastsurfer_dir=args.fastsurfer_dir,

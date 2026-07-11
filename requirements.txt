@@ -17,6 +17,9 @@ pandas>=2.2.0
 scipy>=1.13.0
 scikit-image>=0.24.0
 trimesh>=4.4.0
+# Optional: uniform STL remesh (pipeline.remesh). Absence is handled gracefully.
+pyacvd>=0.2.11
+pyvista>=0.43
 
 # Graph / network analysis
 networkx>=3.3

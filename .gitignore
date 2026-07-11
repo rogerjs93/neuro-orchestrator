@@ -1,23 +1,81 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
-nilearn_cache/
 
-# Node
-node_modules/
 
+# --- Audio / voice (may be personal) ---
+# --- Data & PHI: never publish ---
+# --- Databases with real content ---
+# --- Model weights ---
+# --- Python / Node / OS ---
+# --- Secrets ---
 # Data, outputs, licenses (large or sensitive — keep out of VCS)
-data/
-outputs/
-licenses/
-
 # Environments
-.venv/
-venv/
-.env
-
+# Node
 # OS
+# Python
+*.bdf
+*.ckpt
+*.db
+*.edf
+*.egg-info/
+*.egg-info/
+*.env
+*.fif
+*.flac
+*.h5
+*.key
+*.m4a
+*.mgz
+*.mp3
+*.nii
+*.nii.gz
+*.ogg
+*.onnx
+*.pem
+*.pt
+*.pth
+*.py[cod]
+*.py[cod]
+*.safetensors
+*.set
+*.sqlite
+*.sqlite3
+*.token
+*.wav
 .DS_Store
+.DS_Store
+.env
+.env
+.idea/
+.ipynb_checkpoints/
+.pytest_cache/
+.pytest_cache/
+.venv/
+.venv/
+.vscode/
 Thumbs.db
+Thumbs.db
+__pycache__/
+__pycache__/
+audio/
+build/
+checkpoints/
+data/
+data/
+derivatives/
+dist/
+enroll/
+enrollment/
+env/
+id_rsa*
+licenses/
+models/
+nilearn_cache/
+node_modules/
+node_modules/
+outputs/
+outputs/
+recordings/
+registry.db
+samples/
+venv/
+venv/
+weights/

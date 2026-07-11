@@ -914,6 +914,27 @@ def _normalize_stl_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "Choose regions/lobes/networks/tissues before submitting STL."
                 ),
             )
+
+    # Optional uniform remesh (pipeline.remesh) — coerce + clamp defensively.
+    if "remesh" in payload and "remesh" not in params:
+        params["remesh"] = payload.get("remesh")
+    if str(params.get("remesh", "")).strip().lower() in ("true", "1", "on", "yes"):
+        params["remesh"] = True
+    if params.get("remesh") is True:
+        if params.get("remesh_ratio") is not None:
+            try:
+                params["remesh_ratio"] = min(1.0, max(0.05, float(params["remesh_ratio"])))
+            except (TypeError, ValueError):
+                params.pop("remesh_ratio", None)
+        if params.get("remesh_target_vertices") is not None:
+            try:
+                tv = int(params["remesh_target_vertices"])
+                params["remesh_target_vertices"] = tv if tv > 0 else None
+            except (TypeError, ValueError):
+                params.pop("remesh_target_vertices", None)
+    else:
+        params.pop("remesh", None)
+
     return {"preset": preset, "params": params}
 
 

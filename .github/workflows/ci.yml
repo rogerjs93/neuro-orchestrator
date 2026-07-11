@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Run test suite
+        run: python -m pytest -q
+    # Real-data integration tests skip automatically (data/ and outputs/ are
+    # gitignored, so they aren't present on a fresh checkout).
+
+  ui-lint:
+    name: UI anti-pattern check (informational)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install UI tooling
+        run: npm ci || npm install
+      - name: Run impeccable detector
+        # Non-blocking: surfaces the known design findings without failing CI.
+        run: node node_modules/impeccable/cli/bin/cli.js detect src/static/index.html src/static/manual_mask.html
+        continue-on-error: true

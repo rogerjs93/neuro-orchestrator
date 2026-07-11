@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neuro-Orchestrator — rogerjs93</title>
+<meta name="description" content="One-command neuroimaging pipelines for hypothesis testing.">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<nav class="nav"><div class="wrap">
+<a class="brand" href="./index.html">roger<b>js93</b></a>
+<div class="nav-actions">
+<a class="icon-btn" href="https://github.com/rogerjs93" aria-label="GitHub profile" title="GitHub">↗</a>
+<button class="icon-btn" data-theme-toggle type="button" aria-label="Toggle theme">☾</button>
+</div></div></nav>
+<header class="sh-hero"><div class="hero-bg" aria-hidden="true"><canvas data-hero-canvas></canvas></div><div class="wrap">
+<p class="eyebrow cat-neuro">Neuro &amp; Medical</p>
+<h1>Neuro-Orchestrator</h1>
+<p class="tagline">One-command neuroimaging pipelines for hypothesis testing.</p>
+<div class="sh-meta"><span class="status ready">Ready</span><div class="tags"><span class="tag">FastAPI</span><span class="tag">Docker</span><span class="tag">Nilearn</span><span class="tag">FastSurfer</span><span class="tag">BIDS</span></div></div>
+<div class="banner">Research use only. This wraps peer-reviewed, research-grade tools. It is not a medical device and not for diagnosis.</div>
+</div></header>
+<main class="sec"><div class="wrap">
+<div class="prose">
+<p>Wraps peer-reviewed tools (fMRIPrep, FastSurfer, MRtrix3, Nilearn) behind a FastAPI web UI and Docker, adding group statistics, a review-gated masking stage, and parametric STL export.</p>
+<h2>Key features</h2>
+<ul class="features"><li>BIDS ingestion plus DICOM to BIDS conversion</li><li>Per-subject functional connectivity matrices and graph metrics</li><li>Two-group statistics: permutation FWE, NBS, and FDR, with covariates</li><li>Review-gated masking with a manual mask editor</li><li>Parametric STL export with topology repair and uniform remesh</li></ul>
+<h2>Run with Docker</h2>
+<pre><code># Docker Desktop must be running
+docker-compose up -d --build orchestrator
+# then open http://localhost:8080
+# tip: set MOCK_MODE=1 for a light run without pulling large tool images</code></pre>
+</div>
+
+<div class="prose"><h2>Source</h2>
+<p><a href="https://github.com/rogerjs93/neuro-orchestrator">github.com/rogerjs93/neuro-orchestrator</a> · GitHub Pages hosts this page; the app itself runs locally per the quickstart.</p></div>
+<a class="backlink" href="https://rogerjs93.github.io/">← All projects</a>
+</div></main>
+<footer class="foot"><div class="wrap">
+<span>Built by <a href="https://github.com/rogerjs93">rogerjs93</a> · neuroscience + AI engineering</span>
+<span class="mono">22 projects · 5 fields</span>
+</div></footer>
+<script src="./motion.js" defer></script></body></html>
