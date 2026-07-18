@@ -228,6 +228,67 @@ async def ingest_dicom(
     return await _safe(_c().post("/api/ingest/dicom", json=payload))
 
 
+# ------------------------------------------------- OpenNeuro fetch + full run
+
+@mcp.tool()
+async def ingest_openneuro(accession: str, participants: Optional[list[str]] = None) -> Any:
+    """Download an OpenNeuro dataset into the pipeline's data dir (real files, from the public S3
+    bucket). Fetches dataset metadata (participants.tsv, dataset_description.json) plus each given
+    participant's BIDS tree.
+
+    - accession: OpenNeuro id, e.g. 'ds004796'.
+    - participants: labels to fetch, e.g. ['sub-01', '02']; omit/empty for metadata only.
+    Returns immediately; the download runs on the orchestrator host. Poll `get_progress` or
+    `list_subjects` to see subjects appear.
+    """
+    body = {"accession": accession, "participants": participants or []}
+    return await _safe(_c().post("/api/ingest/openneuro", json=body))
+
+
+@mcp.tool()
+async def process_dataset(accession: str, participants: list[str]) -> Any:
+    """One-shot: fetch the given OpenNeuro participants AND run the full pipeline on them.
+
+    Everything runs locally on the orchestrator host (heavy tools execute as Docker containers) with
+    online-style automation. Returns immediately; poll `get_progress`. Real fMRIPrep/FastSurfer runs
+    are heavy (hours per subject, GPU recommended) unless the orchestrator is in MOCK_MODE. After the
+    runs finish, call `run_group_stats` for the group analysis.
+
+    - accession: OpenNeuro id, e.g. 'ds004796'.
+    - participants: labels to fetch and process, e.g. ['01', '02'].
+    """
+    if not participants:
+        return {"error": "process_dataset requires at least one participant."}
+    body = {"accession": accession, "participants": participants}
+    return await _safe(_c().post("/api/process", json=body))
+
+
+@mcp.tool()
+async def get_progress() -> Any:
+    """Compact progress summary for check-ups (parses the pipeline status JSON). For each subject:
+    overall status, current stage, per-stage statuses, and percent complete; plus overall counts."""
+    snap = await _safe(_c().get("/api/subjects"))
+    if isinstance(snap, dict) and "error" in snap:
+        return snap
+    subjects = (snap or {}).get("subjects", {}) if isinstance(snap, dict) else {}
+    per: dict[str, Any] = {}
+    counts: dict[str, int] = {}
+    for sid, s in subjects.items():
+        prog = s.get("progress", {}) or {}
+        done, total = int(prog.get("done", 0)), int(prog.get("total", 0))
+        overall = s.get("overall", "unknown")
+        counts[overall] = counts.get(overall, 0) + 1
+        per[sid] = {
+            "overall": overall,
+            "current_stage": s.get("current_stage"),
+            "percent": round(100 * done / total) if total else 0,
+            "stages_done": f"{done}/{total}",
+            "stages": s.get("stages", {}),
+            "live": s.get("live"),
+        }
+    return {"n_subjects": len(per), "summary": counts, "subjects": per}
+
+
 def main() -> None:
     """Console entry point: run the MCP server over stdio."""
     mcp.run()

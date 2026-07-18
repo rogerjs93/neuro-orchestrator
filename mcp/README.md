@@ -77,8 +77,24 @@ Add to `claude_desktop_config.json`:
 | `list_group_stats` / `run_group_stats(...)` | Two-group stats (permutation FWE / NBS / FDR), covariates |
 | `generate_stl(subject, preset, params)` | Queue an STL export (presets + `remesh` for clean surfaces) |
 | `ingest_dicom(dicom_dir, participant)` | DICOM → BIDS via dcm2bids |
+| `ingest_openneuro(accession, participants)` | Download an OpenNeuro dataset's participants into the data dir |
+| `process_dataset(accession, participants)` | One-shot: fetch the given OpenNeuro participants, then run the full pipeline on them |
+| `get_progress()` | Compact per-subject progress summary (status, current stage, % complete) for check-ups |
 
 Destructive endpoints (reset, delete) are intentionally not exposed.
+
+## "Give it a link and go"
+
+```
+process_dataset("ds004796", ["01", "02"])   # fetches those participants from OpenNeuro,
+                                             # then runs the whole pipeline locally
+get_progress()                               # poll for status / percent complete
+run_group_stats(target="fc", participants_column="group")   # after runs finish
+```
+
+Everything runs on the machine hosting the orchestrator; the heavy tools (fMRIPrep, FastSurfer,
+MRtrix3) execute as Docker containers there. Real runs are heavy (hours per subject, GPU
+recommended) unless the orchestrator is in `MOCK_MODE`, which simulates the stages.
 
 ## Develop / test
 

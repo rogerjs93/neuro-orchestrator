@@ -34,8 +34,14 @@ needs_server = pytest.mark.skipif(not UP, reason=f"orchestrator not reachable at
 async def test_expected_tools_registered():
     names = {t.name for t in await server.mcp.list_tools()}
     for expected in {"list_subjects", "run_subject", "run_stage", "generate_stl",
-                     "run_group_stats", "review_mask_gate", "ingest_dicom"}:
+                     "run_group_stats", "review_mask_gate", "ingest_dicom",
+                     "ingest_openneuro", "process_dataset", "get_progress"}:
         assert expected in names, f"missing tool {expected}"
+
+
+async def test_process_dataset_requires_participants():
+    res = await server.process_dataset("ds004796", [])
+    assert "error" in res
 
 
 async def test_run_stage_rejects_bad_stage():
@@ -78,3 +84,12 @@ async def test_participant_columns_live():
     server._client = None
     res = await server.get_participant_columns()
     assert "error" not in res
+
+
+@needs_server
+async def test_get_progress_shape_live():
+    server._client = None
+    res = await server.get_progress()
+    assert "error" not in res
+    assert set(res) >= {"n_subjects", "summary", "subjects"}
+    assert isinstance(res["subjects"], dict)

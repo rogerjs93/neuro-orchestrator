@@ -34,6 +34,7 @@ from pipeline.adapters import register_stage_outputs
 from pipeline.validators import validate_artifact, validate_and_record
 from pipeline.progress import parse_progress
 from pipeline.ingest import build_dcm2bids_command, write_default_config
+from pipeline.openneuro import fetch_openneuro
 from pipeline.group_stats import (
     compare_network_metrics,
     compare_fc_matrices,
@@ -1739,6 +1740,81 @@ async def ingest_dicom_upload(
     )
     asyncio.create_task(_run_ingest(cmd, f"sub-{label}"))
     return JSONResponse({"message": f"DICOM upload received for sub-{label}; converting…"})
+
+
+async def _log_line(message: str, subject_id: str = "", stage: str = "openneuro",
+                    level: str = "stage") -> None:
+    await broadcast({"type": "log", "subject_id": subject_id, "stage": stage,
+                     "message": message, "level": level})
+
+
+def _validate_openneuro_payload(payload: Dict[str, Any]) -> tuple[str, List[str]] | JSONResponse:
+    accession = str(payload.get("accession", "")).strip()
+    participants = payload.get("participants") or []
+    if not accession:
+        return JSONResponse({"error": "accession is required (e.g. 'ds004796')"}, status_code=400)
+    if not isinstance(participants, list):
+        return JSONResponse({"error": "participants must be a list of labels"}, status_code=400)
+    return accession, [str(p) for p in participants]
+
+
+@app.post("/api/ingest/openneuro")
+async def ingest_openneuro(payload: Dict[str, Any] = Body(default={})) -> JSONResponse:
+    """Fetch an OpenNeuro dataset (root metadata + the given participants) into the BIDS data dir."""
+    parsed = _validate_openneuro_payload(payload)
+    if isinstance(parsed, JSONResponse):
+        return parsed
+    accession, participants = parsed
+
+    async def _job() -> None:
+        try:
+            await _log_line(f"[openneuro] fetching {accession} participants={participants or 'metadata only'}")
+            summary = await asyncio.to_thread(fetch_openneuro, accession, participants, str(DATA_DIR), print)
+            _reload_subjects()
+            await broadcast(_snapshot())
+            await _log_line(f"[openneuro] done: {summary['files']} files, subjects now: "
+                            f"{sorted(pipeline_state.subjects.keys())}")
+        except Exception as exc:  # pragma: no cover - network/runtime
+            await _log_line(f"[openneuro] ERROR: {exc}", level="error")
+
+    asyncio.create_task(_job())
+    return JSONResponse({"message": f"Fetching {accession} "
+                                    f"({len(participants) or 'metadata-only'} participants) from OpenNeuro. "
+                                    f"Poll /api/subjects for progress."})
+
+
+@app.post("/api/process")
+async def process_dataset(payload: Dict[str, Any] = Body(default={})) -> JSONResponse:
+    """One-shot: fetch an OpenNeuro dataset's participants, then run the full pipeline on them.
+
+    Runs the whole thing on THIS machine (Docker sibling containers) with online-style automation.
+    Returns immediately; poll /api/subjects for progress. Group statistics are a follow-up
+    /api/group-stats call once the runs complete.
+    """
+    parsed = _validate_openneuro_payload(payload)
+    if isinstance(parsed, JSONResponse):
+        return parsed
+    accession, participants = parsed
+    if not participants:
+        return JSONResponse({"error": "process requires at least one participant"}, status_code=400)
+
+    async def _job() -> None:
+        try:
+            await _log_line(f"[process] fetching {accession} {participants}")
+            await asyncio.to_thread(fetch_openneuro, accession, participants, str(DATA_DIR), print)
+            _reload_subjects()
+            await broadcast(_snapshot())
+            targets = [sid for sid in pipeline_state.subjects if sid in
+                       {p if p.startswith("sub-") else f"sub-{p}" for p in participants}]
+            await _log_line(f"[process] running full pipeline for {targets}")
+            for sid in targets:
+                asyncio.create_task(_run(sid))
+        except Exception as exc:  # pragma: no cover - network/runtime
+            await _log_line(f"[process] ERROR: {exc}", level="error")
+
+    asyncio.create_task(_job())
+    return JSONResponse({"message": f"Processing {accession}: fetching {len(participants)} participant(s), "
+                                    f"then running the full pipeline. Poll /api/subjects for progress."})
 
 
 @app.post("/api/reset")
