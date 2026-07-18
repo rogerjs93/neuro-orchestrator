@@ -246,20 +246,40 @@ async def ingest_openneuro(accession: str, participants: Optional[list[str]] = N
 
 
 @mcp.tool()
-async def process_dataset(accession: str, participants: list[str]) -> Any:
+async def process_dataset(
+    accession: str,
+    participants: list[str],
+    group_column: Optional[str] = None,
+    stats_target: str = "network",
+    fc_method: Optional[str] = None,
+    covariate_columns: Optional[list[str]] = None,
+    alpha: float = 0.05,
+) -> Any:
     """One-shot: fetch the given OpenNeuro participants AND run the full pipeline on them.
 
     Everything runs locally on the orchestrator host (heavy tools execute as Docker containers) with
     online-style automation. Returns immediately; poll `get_progress`. Real fMRIPrep/FastSurfer runs
-    are heavy (hours per subject, GPU recommended) unless the orchestrator is in MOCK_MODE. After the
-    runs finish, call `run_group_stats` for the group analysis.
+    are heavy (hours per subject, GPU recommended) unless the orchestrator is in MOCK_MODE.
 
     - accession: OpenNeuro id, e.g. 'ds004796'.
     - participants: labels to fetch and process, e.g. ['01', '02'].
+    - group_column (optional): a participants.tsv column with two values. If given, a two-group
+      comparison runs AUTOMATICALLY once all subjects finish (otherwise call `run_group_stats` later).
+    - stats_target: 'network' or 'fc' for the auto group comparison.
+    - fc_method (target='fc'): 'permutation' (default), 'nbs', or 'screen'.
+    - covariate_columns: participants.tsv columns to adjust for (e.g. ['age']).
+    - alpha: significance threshold.
     """
     if not participants:
         return {"error": "process_dataset requires at least one participant."}
-    body = {"accession": accession, "participants": participants}
+    body: dict[str, Any] = {"accession": accession, "participants": participants}
+    if group_column:
+        gs: dict[str, Any] = {"target": stats_target, "participants_column": group_column, "alpha": alpha}
+        if fc_method:
+            gs["fc_method"] = fc_method
+        if covariate_columns:
+            gs["covariate_columns"] = covariate_columns
+        body["group_stats"] = gs
     return await _safe(_c().post("/api/process", json=body))
 
 

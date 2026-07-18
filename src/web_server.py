@@ -1538,15 +1538,14 @@ async def list_group_stats() -> JSONResponse:
     return JSONResponse({"results": items})
 
 
-@app.post("/api/group-stats")
-async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONResponse:
-    """Two-group hypothesis test over per-subject artifacts (resolved by role)."""
+async def _group_stats_core(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Run a two-group comparison and save the result. Returns the result dict, or {"error": ...}."""
     _reload_subjects()
     target = str(payload.get("target", "network")).strip().lower()
     try:
         alpha = float(payload.get("alpha", 0.05))
     except (TypeError, ValueError):
-        return JSONResponse({"error": "alpha must be a number"}, status_code=400)
+        return {"error": "alpha must be a number"}
 
     groups = payload.get("groups")
     if not groups:
@@ -1554,10 +1553,7 @@ async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONRes
         if column:
             groups = groups_from_participants(DATA_DIR, column)
     if not isinstance(groups, dict) or len(groups) != 2:
-        return JSONResponse(
-            {"error": "Provide exactly two groups, or a participants_column with two values"},
-            status_code=400,
-        )
+        return {"error": "Provide exactly two groups, or a participants_column with two values"}
 
     # Covariates: inline {subject: {name: value}}, or read columns from participants.tsv.
     covariates = payload.get("covariates")
@@ -1591,7 +1587,7 @@ async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONRes
                             fc_by_subject[sid] = np.load(path)
                         except Exception:
                             pass
-            method = str(payload.get("method", "permutation")).strip().lower()
+            method = str(payload.get("method") or payload.get("fc_method") or "permutation").strip().lower()
             if method in ("screen", "fdr", "mass_univariate"):
                 result = compare_fc_matrices(fc_by_subject, groups, alpha=alpha)
             elif method == "nbs":
@@ -1611,9 +1607,9 @@ async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONRes
                     n_perm = 5000
                 result = compare_fc_permutation(fc_by_subject, groups, alpha=alpha, n_perm=n_perm, covariates=covariates)
         else:
-            return JSONResponse({"error": "target must be 'network' or 'fc'"}, status_code=400)
+            return {"error": "target must be 'network' or 'fc'"}
     except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
+        return {"error": str(exc)}
 
     out_dir = OUTPUT_DIR / "group"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1629,7 +1625,14 @@ async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONRes
                    f"{result['n_significant']} significant (alpha={alpha})",
         "level": "stage",
     })
-    return JSONResponse(result)
+    return result
+
+
+@app.post("/api/group-stats")
+async def run_group_stats(payload: Dict[str, Any] = Body(default={})) -> JSONResponse:
+    """Two-group hypothesis test over per-subject artifacts (resolved by role)."""
+    result = await _group_stats_core(payload)
+    return JSONResponse(result, status_code=400 if "error" in result else 200)
 
 
 async def _run_ingest(cmd: List[str], participant: str) -> None:
@@ -1798,6 +1801,9 @@ async def process_dataset(payload: Dict[str, Any] = Body(default={})) -> JSONRes
     if not participants:
         return JSONResponse({"error": "process requires at least one participant"}, status_code=400)
 
+    group_stats = payload.get("group_stats")
+    do_group = isinstance(group_stats, dict) and bool(group_stats)
+
     async def _job() -> None:
         try:
             await _log_line(f"[process] fetching {accession} {participants}")
@@ -1807,14 +1813,24 @@ async def process_dataset(payload: Dict[str, Any] = Body(default={})) -> JSONRes
             targets = [sid for sid in pipeline_state.subjects if sid in
                        {p if p.startswith("sub-") else f"sub-{p}" for p in participants}]
             await _log_line(f"[process] running full pipeline for {targets}")
-            for sid in targets:
-                asyncio.create_task(_run(sid))
+            run_tasks = [asyncio.create_task(_run(sid)) for sid in targets]
+            if do_group and run_tasks:
+                # Wait for all runs to finish, then compute group statistics automatically.
+                await asyncio.gather(*run_tasks, return_exceptions=True)
+                await _log_line("[process] runs complete, computing group statistics")
+                res = await _group_stats_core(group_stats)  # type: ignore[arg-type]
+                if isinstance(res, dict) and res.get("error"):
+                    await _log_line(f"[process] group-stats skipped: {res['error']}", level="error")
+                else:
+                    await _log_line(f"[process] group-stats saved: {res.get('saved_as')}")
+                await broadcast(_snapshot())
         except Exception as exc:  # pragma: no cover - network/runtime
             await _log_line(f"[process] ERROR: {exc}", level="error")
 
     asyncio.create_task(_job())
+    tail = " then group statistics" if do_group else ""
     return JSONResponse({"message": f"Processing {accession}: fetching {len(participants)} participant(s), "
-                                    f"then running the full pipeline. Poll /api/subjects for progress."})
+                                    f"running the full pipeline{tail}. Poll /api/subjects for progress."})
 
 
 @app.post("/api/reset")
